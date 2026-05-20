@@ -11,6 +11,11 @@ struct HomeView: View {
     @AppStorage(SelectedAlertKeys.voiceName) private var savedVoiceName: String = ""
     @AppStorage(SelectedAlertKeys.sayingTitle) private var savedSayingTitle: String = ""
     @AppStorage(SelectedAlertKeys.notificationText) private var savedNotificationText: String = ""
+    @AppStorage(SelectedLimitKeys.minutes) private var savedLimitMinutes: Int = LockInLimitOption.defaultMinutes
+
+    private var savedLimitOption: LockInLimitOption {
+        LockInLimitOption.option(forMinutes: savedLimitMinutes)
+    }
 
     var body: some View {
         NavigationStack {
@@ -20,9 +25,7 @@ struct HomeView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 28) {
                         header
-                        if !savedVoiceName.isEmpty {
-                            currentAlertCard
-                        }
+                        summarySection
                         cardGrid
                         footerNote
                     }
@@ -33,6 +36,17 @@ struct HomeView: View {
                 }
             }
             .toolbar(.hidden, for: .navigationBar)
+        }
+    }
+
+    // MARK: - Summary
+
+    private var summarySection: some View {
+        VStack(spacing: 12) {
+            if !savedVoiceName.isEmpty {
+                currentAlertCard
+            }
+            currentLimitCard
         }
     }
 
@@ -150,6 +164,65 @@ struct HomeView: View {
         .buttonStyle(PressableScaleStyle())
     }
 
+    // MARK: - Current limit card
+
+    private var currentLimitCard: some View {
+        NavigationLink {
+            LimitSetupView()
+        } label: {
+            HStack(alignment: .center, spacing: 14) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(
+                            LinearGradient(
+                                colors: [
+                                    Color(red: 0.30, green: 0.10, blue: 0.45),
+                                    Color(red: 0.85, green: 0.10, blue: 0.20)
+                                ],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                        .frame(width: 46, height: 46)
+                    Image(systemName: "timer")
+                        .font(.system(size: 20, weight: .bold))
+                        .foregroundStyle(.white)
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("YOUR LIMIT")
+                        .font(.system(size: 11, weight: .heavy, design: .rounded))
+                        .tracking(1.8)
+                        .foregroundStyle(.white.opacity(0.55))
+                    Text(savedLimitOption.longLabel)
+                        .font(.system(size: 17, weight: .bold, design: .rounded))
+                        .foregroundStyle(.white)
+                    Text("Before LockIn yells at you.")
+                        .font(.system(size: 13, weight: .medium, design: .rounded))
+                        .foregroundStyle(.white.opacity(0.7))
+                        .lineLimit(1)
+                }
+
+                Spacer(minLength: 0)
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundStyle(.white.opacity(0.45))
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .fill(Color.white.opacity(0.06))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
+            )
+        }
+        .buttonStyle(PressableScaleStyle())
+    }
+
     // MARK: - Card grid
 
     private var cardGrid: some View {
@@ -171,7 +244,8 @@ struct HomeView: View {
             }
             .buttonStyle(PressableScaleStyle())
 
-            Button {
+            NavigationLink {
+                LimitSetupView()
             } label: {
                 ActionCard(
                     title: "Set Limit",

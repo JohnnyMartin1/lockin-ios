@@ -268,7 +268,8 @@ struct HomeView: View {
             }
             .buttonStyle(PressableScaleStyle())
 
-            Button {
+            NavigationLink {
+                StartLockInView()
             } label: {
                 ActionCard(
                     title: "Start LockIn",

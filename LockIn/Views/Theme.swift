@@ -57,23 +57,23 @@ enum LockInRadius {
 // MARK: - Type
 
 enum LockInType {
-    static func wordmark(_ text: String, size: CGFloat = 28) -> some View {
+    static func wordmark(_ text: String, size: CGFloat = 16) -> some View {
         Text(text.uppercased())
-            .font(.system(size: size, weight: .black, design: .monospaced))
-            .tracking(size * 0.20)
+            .font(.system(size: size, weight: .heavy, design: .rounded))
+            .tracking(size * 0.30)
             .foregroundStyle(LockInColor.textPrimary)
     }
 
     static func screenTitle(_ text: String) -> some View {
         Text(text)
-            .font(.system(size: 30, weight: .black, design: .rounded))
+            .font(.system(size: 26, weight: .heavy, design: .rounded))
             .foregroundStyle(LockInColor.textPrimary)
             .fixedSize(horizontal: false, vertical: true)
     }
 
     static func screenSubtitle(_ text: String) -> some View {
         Text(text)
-            .font(.system(size: 15, weight: .medium, design: .rounded))
+            .font(.system(size: 14.5, weight: .medium, design: .rounded))
             .foregroundStyle(LockInColor.textSecondary)
             .fixedSize(horizontal: false, vertical: true)
     }

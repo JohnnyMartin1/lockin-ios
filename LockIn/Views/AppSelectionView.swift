@@ -9,11 +9,13 @@ struct AppSelectionView: View {
     @Environment(\.dismiss) private var dismiss
 
     @AppStorage(SelectedAppsKeys.ids) private var savedAppIDsRaw: String = ""
+    @AppStorage(LockInSetupKeys.appGroupID) private var savedAppGroupID: String = ""
 
     @State private var selectedIDs: Set<String>
     @State private var statusMessage: String?
 
     private let apps = MockApp.bundled
+    private let groups = LockInAppGroup.presets
 
     init() {
         let raw = UserDefaults.standard.string(forKey: SelectedAppsKeys.ids) ?? ""
@@ -21,7 +23,15 @@ struct AppSelectionView: View {
     }
 
     private var savedIDs: Set<String> { Set(SelectedAppsStorage.decode(savedAppIDsRaw)) }
-    private var hasUnsavedChanges: Bool { savedIDs != selectedIDs }
+    private var hasUnsavedChanges: Bool {
+        savedIDs != selectedIDs
+            || savedAppGroupID != (currentGroupMatch?.id ?? "")
+    }
+
+    /// The preset group that matches the current selection exactly, if any.
+    private var currentGroupMatch: LockInAppGroup? {
+        LockInAppGroup.match(forSelectedAppIDs: Array(selectedIDs))
+    }
 
     private var selectedCountLabel: String {
         let n = selectedIDs.count
@@ -36,7 +46,8 @@ struct AppSelectionView: View {
                 VStack(alignment: .leading, spacing: LockInSpacing.xl) {
                     topBar
                     header
-                    appList
+                    groupsSection
+                    appsSection
                     saveButton
                     screenTimeNote
                     if let statusMessage {
@@ -52,7 +63,7 @@ struct AppSelectionView: View {
         .toolbar(.hidden, for: .navigationBar)
     }
 
-    // MARK: - Top bar
+    // MARK: - Top bar / header
 
     private var topBar: some View {
         HStack(spacing: 12) {
@@ -62,8 +73,6 @@ struct AppSelectionView: View {
         }
     }
 
-    // MARK: - Header
-
     private var header: some View {
         VStack(alignment: .leading, spacing: 8) {
             LockInType.screenTitle("Apps to Watch")
@@ -71,17 +80,41 @@ struct AppSelectionView: View {
         }
     }
 
-    // MARK: - App list
+    // MARK: - Groups
 
-    private var appList: some View {
-        VStack(spacing: 10) {
-            ForEach(apps) { app in
-                Button {
-                    toggle(app.id)
-                } label: {
-                    MockAppRow(app: app, isSelected: selectedIDs.contains(app.id))
+    private var groupsSection: some View {
+        VStack(alignment: .leading, spacing: LockInSpacing.m) {
+            SectionHeader(title: "Quick Picks")
+            VStack(spacing: 8) {
+                ForEach(groups) { group in
+                    Button {
+                        applyGroup(group)
+                    } label: {
+                        GroupPresetRow(
+                            group: group,
+                            isActive: currentGroupMatch?.id == group.id
+                        )
+                    }
+                    .buttonStyle(PressableScaleStyle())
                 }
-                .buttonStyle(PressableScaleStyle())
+            }
+        }
+    }
+
+    // MARK: - Apps list
+
+    private var appsSection: some View {
+        VStack(alignment: .leading, spacing: LockInSpacing.m) {
+            SectionHeader(title: "Individual Apps")
+            VStack(spacing: 8) {
+                ForEach(apps) { app in
+                    Button {
+                        toggle(app.id)
+                    } label: {
+                        MockAppRow(app: app, isSelected: selectedIDs.contains(app.id))
+                    }
+                    .buttonStyle(PressableScaleStyle())
+                }
             }
         }
     }
@@ -99,12 +132,13 @@ struct AppSelectionView: View {
         }
     }
 
-    // MARK: - Screen Time note
+    // MARK: - Footnote
 
     private var screenTimeNote: some View {
-        Text("Real app monitoring will use Apple Screen Time permissions.")
+        Text("Automatic app monitoring will connect to Apple Screen Time permissions later.")
             .font(.system(size: 12, weight: .medium, design: .rounded))
             .foregroundStyle(LockInColor.textTertiary)
+            .multilineTextAlignment(.center)
             .frame(maxWidth: .infinity, alignment: .center)
             .padding(.top, LockInSpacing.s)
     }
@@ -119,15 +153,26 @@ struct AppSelectionView: View {
         }
     }
 
+    private func applyGroup(_ group: LockInAppGroup) {
+        if currentGroupMatch?.id == group.id {
+            // Tapping the active group clears all.
+            selectedIDs.removeAll()
+        } else {
+            selectedIDs = Set(group.appIDs)
+        }
+    }
+
     private func saveSelection() {
         let orderedIDs = apps.map(\.id).filter { selectedIDs.contains($0) }
         savedAppIDsRaw = SelectedAppsStorage.encode(orderedIDs)
+        savedAppGroupID = currentGroupMatch?.id ?? ""
         let count = orderedIDs.count
+        let groupName = currentGroupMatch?.name
         let message: String
         switch count {
         case 0: message = "Apps saved. No apps selected."
-        case 1: message = "Apps saved. 1 app locked in."
-        default: message = "Apps saved. \(count) apps locked in."
+        case 1: message = groupName.map { "Apps saved. \($0) (1 app)." } ?? "Apps saved. 1 app locked in."
+        default: message = groupName.map { "Apps saved. \($0) (\(count) apps)." } ?? "Apps saved. \(count) apps locked in."
         }
         showStatus(message)
     }
@@ -143,6 +188,57 @@ struct AppSelectionView: View {
     }
 }
 
+// MARK: - Group preset row
+
+private struct GroupPresetRow: View {
+    let group: LockInAppGroup
+    let isActive: Bool
+
+    var body: some View {
+        HStack(spacing: 12) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(LockInColor.accent.opacity(isActive ? 0.22 : 0.12))
+                    .frame(width: 38, height: 38)
+                Image(systemName: group.systemImage)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(isActive ? LockInColor.accent : LockInColor.textSecondary)
+            }
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(group.name)
+                    .font(.system(size: 15, weight: .bold, design: .rounded))
+                    .foregroundStyle(LockInColor.textPrimary)
+                Text(group.appIDs.compactMap { MockApp.app(withID: $0)?.name }.joined(separator: ", "))
+                    .font(.system(size: 12.5, weight: .medium, design: .rounded))
+                    .foregroundStyle(LockInColor.textSecondary)
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 0)
+
+            Text(isActive ? "ACTIVE" : "APPLY")
+                .font(.system(size: 10, weight: .heavy, design: .rounded))
+                .tracking(1.4)
+                .foregroundStyle(isActive ? LockInColor.accent : LockInColor.textTertiary)
+        }
+        .padding(.vertical, 10)
+        .padding(.horizontal, 12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: LockInRadius.m, style: .continuous)
+                .fill(LockInColor.surface)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: LockInRadius.m, style: .continuous)
+                .strokeBorder(
+                    isActive ? LockInColor.accent.opacity(0.45) : LockInColor.border,
+                    lineWidth: isActive ? 1.2 : 1
+                )
+        )
+    }
+}
+
 // MARK: - App row
 
 private struct MockAppRow: View {
@@ -154,24 +250,24 @@ private struct MockAppRow: View {
             ZStack {
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
                     .fill(app.accent.opacity(isSelected ? 0.30 : 0.16))
-                    .frame(width: 40, height: 40)
+                    .frame(width: 38, height: 38)
                 Image(systemName: app.symbolName)
-                    .font(.system(size: 17, weight: .bold))
+                    .font(.system(size: 16, weight: .bold))
                     .foregroundStyle(.white)
             }
 
             Text(app.name)
-                .font(.system(size: 16, weight: .semibold, design: .rounded))
+                .font(.system(size: 15.5, weight: .semibold, design: .rounded))
                 .foregroundStyle(LockInColor.textPrimary)
 
             Spacer(minLength: 0)
 
             Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                .font(.system(size: 20, weight: isSelected ? .bold : .regular))
+                .font(.system(size: 19, weight: isSelected ? .bold : .regular))
                 .foregroundStyle(isSelected ? LockInColor.accent : LockInColor.textTertiary)
         }
-        .padding(.vertical, 12)
-        .padding(.horizontal, 14)
+        .padding(.vertical, 11)
+        .padding(.horizontal, 12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: LockInRadius.m, style: .continuous)
@@ -180,7 +276,7 @@ private struct MockAppRow: View {
         .overlay(
             RoundedRectangle(cornerRadius: LockInRadius.m, style: .continuous)
                 .strokeBorder(
-                    isSelected ? LockInColor.accent.opacity(0.55) : LockInColor.border,
+                    isSelected ? LockInColor.accent.opacity(0.45) : LockInColor.border,
                     lineWidth: isSelected ? 1.2 : 1
                 )
         )

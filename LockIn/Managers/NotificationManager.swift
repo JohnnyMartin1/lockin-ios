@@ -110,6 +110,42 @@ final class NotificationManager: NSObject, ObservableObject {
         }
     }
 
+    /// Schedules a LockIn alert using one of the supplied candidate clips.
+    /// If `shuffle` is true and there are multiple candidates, picks one at
+    /// random. With a single candidate or shuffle off, the first is used.
+    @discardableResult
+    func scheduleLockInAlert(
+        candidates: [VoiceClip],
+        shuffle: Bool,
+        after seconds: TimeInterval
+    ) async -> Bool {
+        guard let chosen = chooseClip(from: candidates, shuffle: shuffle) else {
+            print("[LockIn] scheduleLockInAlert(candidates:) skipped — no candidate clips.")
+            return false
+        }
+        return await scheduleLockInAlert(clip: chosen, after: seconds)
+    }
+
+    /// Same selection semantics as the scheduling variant, for test/preview alerts.
+    @discardableResult
+    func sendTestNotification(
+        candidates: [VoiceClip],
+        shuffle: Bool,
+        after seconds: TimeInterval = 3
+    ) async -> Bool {
+        guard let chosen = chooseClip(from: candidates, shuffle: shuffle) else {
+            print("[LockIn] sendTestNotification(candidates:) skipped — no candidate clips.")
+            return false
+        }
+        return await sendTestNotification(clip: chosen, after: seconds)
+    }
+
+    private func chooseClip(from candidates: [VoiceClip], shuffle: Bool) -> VoiceClip? {
+        if candidates.isEmpty { return nil }
+        if candidates.count == 1 || !shuffle { return candidates.first }
+        return candidates.randomElement()
+    }
+
     @discardableResult
     func scheduleLockInAlert(clip: VoiceClip, after seconds: TimeInterval) async -> Bool {
         await refreshAuthorizationStatus()

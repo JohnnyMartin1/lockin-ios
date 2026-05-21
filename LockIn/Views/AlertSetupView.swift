@@ -9,15 +9,13 @@ struct AlertSetupView: View {
     @StateObject private var notificationManager = NotificationManager.shared
     @Environment(\.dismiss) private var dismiss
 
-    @AppStorage(SelectedVoiceKeys.characterId)      private var savedCharacterID: String = ""
-    @AppStorage(SelectedVoiceKeys.characterName)    private var savedCharacterName: String = ""
-    @AppStorage(SelectedVoiceKeys.clipId)           private var savedClipID: String = ""
-    @AppStorage(SelectedVoiceKeys.sayingTitle)      private var savedSayingTitle: String = ""
-    @AppStorage(SelectedVoiceKeys.notificationText) private var savedNotificationText: String = ""
-    @AppStorage(SelectedVoiceKeys.soundFileName)    private var savedSoundFileName: String = ""
+    @AppStorage(SelectedVoiceKeys.characterId) private var savedCharacterID: String = ""
+    @AppStorage(SelectedVoiceKeys.clipIds)     private var savedClipIDsRaw: String  = ""
+    @AppStorage(LockInSetupKeys.randomizeSayings) private var savedShuffle: Bool    = LockInDefaults.randomizeSayings
 
     @State private var selectedCharacterID: String
-    @State private var selectedClipID: String
+    @State private var selectedClipIDs: Set<String>
+    @State private var draftShuffle: Bool
     @State private var statusMessage: String?
     @State private var hasRequestedPermission = false
 
@@ -25,22 +23,54 @@ struct AlertSetupView: View {
 
     init() {
         let storedCharacter = UserDefaults.standard.string(forKey: SelectedVoiceKeys.characterId) ?? ""
-        let storedClip = UserDefaults.standard.string(forKey: SelectedVoiceKeys.clipId) ?? ""
-        let resolvedClip = VoiceLibrary.resolveClip(characterID: storedCharacter, clipID: storedClip)
-        _selectedCharacterID = State(initialValue: resolvedClip.characterId)
-        _selectedClipID = State(initialValue: resolvedClip.id)
+        let storedClips     = UserDefaults.standard.string(forKey: SelectedVoiceKeys.clipIds) ?? ""
+        let storedShuffle   = UserDefaults.standard.object(forKey: LockInSetupKeys.randomizeSayings) as? Bool
+            ?? LockInDefaults.randomizeSayings
+
+        let parsedClips = Set(SelectedClipsStorage.decode(storedClips))
+        let resolvedCharacter = VoiceLibrary.character(withID: storedCharacter) ?? VoiceLibrary.defaultCharacter
+
+        // If no clips are saved yet, seed with the character's first clip so
+        // the user always has something selected and can save immediately.
+        let initialClips: Set<String>
+        if parsedClips.isEmpty {
+            initialClips = Set(resolvedCharacter.clips.first.map { [$0.id] } ?? [])
+        } else {
+            // Drop any saved clip IDs that don't belong to the resolved character.
+            initialClips = Set(parsedClips.compactMap { id in
+                VoiceLibrary.clip(withID: id)?.characterId == resolvedCharacter.id ? id : nil
+            })
+        }
+
+        _selectedCharacterID = State(initialValue: resolvedCharacter.id)
+        _selectedClipIDs     = State(initialValue: initialClips)
+        _draftShuffle        = State(initialValue: storedShuffle)
     }
+
+    // MARK: - Derived
 
     private var selectedCharacter: VoiceCharacter {
         VoiceLibrary.character(withID: selectedCharacterID) ?? VoiceLibrary.defaultCharacter
     }
 
-    private var selectedClip: VoiceClip {
-        VoiceLibrary.resolveClip(characterID: selectedCharacterID, clipID: selectedClipID)
+    /// Currently selected clips, in the canonical character order.
+    private var selectedClips: [VoiceClip] {
+        selectedCharacter.clips.filter { selectedClipIDs.contains($0.id) }
+    }
+
+    private var orderedSelectedClipIDs: [String] {
+        selectedClips.map(\.id)
     }
 
     private var hasUnsavedChanges: Bool {
-        savedCharacterID != selectedCharacterID || savedClipID != selectedClipID
+        let saved = Set(SelectedClipsStorage.decode(savedClipIDsRaw))
+        return savedCharacterID != selectedCharacterID
+            || saved != selectedClipIDs
+            || savedShuffle != draftShuffle
+    }
+
+    private var canSave: Bool {
+        !selectedClipIDs.isEmpty
     }
 
     var body: some View {
@@ -56,7 +86,7 @@ struct AlertSetupView: View {
                     }
                     charactersSection
                     sayingsSection
-                    previewCard
+                    shuffleToggle
                     actionButtons
                     if let statusMessage {
                         LockInStatusBanner(message: statusMessage)
@@ -78,7 +108,7 @@ struct AlertSetupView: View {
         }
     }
 
-    // MARK: - Top bar
+    // MARK: - Top bar / header
 
     private var topBar: some View {
         HStack(spacing: 12) {
@@ -88,16 +118,12 @@ struct AlertSetupView: View {
         }
     }
 
-    // MARK: - Header
-
     private var header: some View {
         VStack(alignment: .leading, spacing: 8) {
             LockInType.screenTitle("Choose Your Character")
             LockInType.screenSubtitle("Pick who yells at you when time is up.")
         }
     }
-
-    // MARK: - Permission warning
 
     private var permissionWarning: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -132,7 +158,7 @@ struct AlertSetupView: View {
 
     private var charactersSection: some View {
         VStack(alignment: .leading, spacing: LockInSpacing.m) {
-            SectionHeader(title: "Voices", trailing: "\(characters.count) characters")
+            SectionHeader(title: "Characters")
             VStack(spacing: 10) {
                 ForEach(characters) { character in
                     Button {
@@ -149,20 +175,23 @@ struct AlertSetupView: View {
         }
     }
 
-    // MARK: - Sayings
+    // MARK: - Sayings (multi-select)
 
     private var sayingsSection: some View {
         VStack(alignment: .leading, spacing: LockInSpacing.m) {
-            SectionHeader(title: "Sayings", trailing: selectedCharacter.name)
+            SectionHeader(
+                title: "Sayings",
+                trailing: "\(selectedCharacter.name) · \(selectedClipIDs.count) picked"
+            )
             VStack(spacing: 8) {
                 ForEach(selectedCharacter.clips) { clip in
                     Button {
-                        selectedClipID = clip.id
+                        toggleClip(clip.id)
                     } label: {
                         ClipRow(
                             clip: clip,
                             accent: selectedCharacter.accent,
-                            isSelected: clip.id == selectedClipID
+                            isSelected: selectedClipIDs.contains(clip.id)
                         )
                     }
                     .buttonStyle(PressableScaleStyle())
@@ -171,49 +200,47 @@ struct AlertSetupView: View {
         }
     }
 
-    // MARK: - Preview card
+    // MARK: - Shuffle
 
-    private var previewCard: some View {
-        VStack(alignment: .leading, spacing: LockInSpacing.m) {
-            SectionHeader(title: "Preview", trailing: "What gets sent")
-            LockInCard {
-                VStack(alignment: .leading, spacing: 14) {
-                    HStack(spacing: 12) {
-                        ZStack {
-                            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                .fill(selectedCharacter.accent.opacity(0.30))
-                                .frame(width: 40, height: 40)
-                            Image(systemName: "waveform")
-                                .font(.system(size: 16, weight: .bold))
-                                .foregroundStyle(.white)
-                        }
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(selectedCharacter.name)
-                                .font(.system(size: 15, weight: .bold, design: .rounded))
-                                .foregroundStyle(LockInColor.textPrimary)
-                            Text(selectedClip.sayingTitle)
-                                .font(.system(size: 12.5, weight: .medium, design: .rounded))
-                                .foregroundStyle(selectedCharacter.accent)
-                        }
-                        Spacer(minLength: 0)
-                    }
-
-                    Text("\u{201C}\(selectedClip.notificationText)\u{201D}")
-                        .font(.system(size: 15, weight: .semibold, design: .rounded))
-                        .foregroundStyle(LockInColor.textPrimary)
-                        .fixedSize(horizontal: false, vertical: true)
-
-                    HStack(spacing: 6) {
-                        Image(systemName: "speaker.wave.2.fill")
-                            .font(.system(size: 10, weight: .bold))
-                            .foregroundStyle(LockInColor.textTertiary)
-                        Text(selectedClip.soundFileName)
-                            .font(.system(size: 11, weight: .medium, design: .monospaced))
-                            .foregroundStyle(LockInColor.textTertiary)
-                    }
-                }
+    private var shuffleToggle: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "shuffle")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(LockInColor.textSecondary)
+                .frame(width: 22)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Shuffle sayings")
+                    .font(.system(size: 14.5, weight: .bold, design: .rounded))
+                    .foregroundStyle(LockInColor.textPrimary)
+                Text(shuffleSubtitle)
+                    .font(.system(size: 12.5, weight: .medium, design: .rounded))
+                    .foregroundStyle(LockInColor.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
+            Spacer(minLength: 0)
+            Toggle("", isOn: $draftShuffle)
+                .labelsHidden()
+                .tint(LockInColor.accent)
         }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: LockInRadius.m, style: .continuous)
+                .fill(LockInColor.surface)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: LockInRadius.m, style: .continuous)
+                .strokeBorder(LockInColor.border, lineWidth: 1)
+        )
+    }
+
+    private var shuffleSubtitle: String {
+        if selectedClipIDs.count <= 1 {
+            return "Pick more than one saying to enable shuffle."
+        }
+        return draftShuffle
+            ? "LockIn picks a random saying each time."
+            : "LockIn uses the same saying each time."
     }
 
     // MARK: - Actions
@@ -223,7 +250,8 @@ struct AlertSetupView: View {
             PrimaryButton(
                 title: "Send Test Alert",
                 systemImage: "play.fill",
-                style: .secondary
+                style: .secondary,
+                isEnabled: canSave
             ) {
                 Task { await handleSendPreview() }
             }
@@ -232,7 +260,7 @@ struct AlertSetupView: View {
                 title: hasUnsavedChanges ? "Save Alert" : "Alert saved",
                 systemImage: hasUnsavedChanges ? "tray.and.arrow.down.fill" : "checkmark.seal.fill",
                 style: .primary,
-                isEnabled: hasUnsavedChanges
+                isEnabled: hasUnsavedChanges && canSave
             ) {
                 saveSelection()
             }
@@ -242,26 +270,35 @@ struct AlertSetupView: View {
     // MARK: - Logic
 
     private func selectCharacter(_ character: VoiceCharacter) {
+        guard character.id != selectedCharacterID else { return }
         selectedCharacterID = character.id
-        // If the current clip doesn't belong to this character, reset to its first.
-        let currentClip = VoiceLibrary.clip(withID: selectedClipID)
-        if currentClip?.characterId != character.id {
-            if let firstClip = character.clips.first {
-                selectedClipID = firstClip.id
+        // Reset to that character's first saying when switching characters.
+        if let firstClip = character.clips.first {
+            selectedClipIDs = [firstClip.id]
+        } else {
+            selectedClipIDs = []
+        }
+    }
+
+    private func toggleClip(_ id: String) {
+        if selectedClipIDs.contains(id) {
+            if selectedClipIDs.count > 1 {
+                selectedClipIDs.remove(id)
             }
+            // Keep at least one selection — silently ignore if this is the last.
+        } else {
+            selectedClipIDs.insert(id)
         }
     }
 
     private func saveSelection() {
-        let character = selectedCharacter
-        let clip = selectedClip
-        savedCharacterID      = character.id
-        savedCharacterName    = character.name
-        savedClipID           = clip.id
-        savedSayingTitle      = clip.sayingTitle
-        savedNotificationText = clip.notificationText
-        savedSoundFileName    = clip.soundFileName
-        showStatus("Saved. \(character.name) — \u{201C}\(clip.notificationText)\u{201D}")
+        guard canSave else { return }
+        savedCharacterID = selectedCharacterID
+        savedClipIDsRaw  = SelectedClipsStorage.encode(orderedSelectedClipIDs)
+        savedShuffle     = draftShuffle
+        let n = selectedClipIDs.count
+        let suffix = (n > 1 && draftShuffle) ? " (shuffle on)" : ""
+        showStatus("Saved. \(selectedCharacter.name) · \(n) saying\(n == 1 ? "" : "s")\(suffix).")
     }
 
     private func handleSendPreview() async {
@@ -279,11 +316,16 @@ struct AlertSetupView: View {
             break
         }
 
-        let scheduled = await notificationManager.sendTestNotification(clip: selectedClip, after: 3)
+        let candidates = selectedClips
+        let scheduled = await notificationManager.sendTestNotification(
+            candidates: candidates,
+            shuffle: draftShuffle,
+            after: 3
+        )
         if scheduled {
             showStatus("Preview in 3 seconds. Lock or background your phone to hear it.")
         } else {
-            showStatus("Could not schedule preview. Check notification permissions.")
+            showStatus("Could not schedule preview. Pick at least one saying.")
         }
     }
 
@@ -309,20 +351,17 @@ private struct CharacterCard: View {
             ZStack {
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .fill(character.accent.opacity(isSelected ? 0.35 : 0.18))
-                    .frame(width: 48, height: 48)
+                    .frame(width: 44, height: 44)
                 Image(systemName: "waveform")
-                    .font(.system(size: 20, weight: .bold))
+                    .font(.system(size: 18, weight: .bold))
                     .foregroundStyle(.white)
             }
 
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 8) {
                     Text(character.name)
-                        .font(.system(size: 17, weight: .bold, design: .rounded))
+                        .font(.system(size: 16, weight: .bold, design: .rounded))
                         .foregroundStyle(LockInColor.textPrimary)
-                    if character.isPremium {
-                        PillBadge(text: "Premium", style: .premium, systemImage: "crown.fill")
-                    }
                     Spacer(minLength: 0)
                     if isSelected {
                         Image(systemName: "checkmark.circle.fill")
@@ -337,20 +376,12 @@ private struct CharacterCard: View {
                     .foregroundStyle(character.accent)
 
                 Text(character.shortDescription)
-                    .font(.system(size: 13.5, weight: .medium, design: .rounded))
+                    .font(.system(size: 13, weight: .medium, design: .rounded))
                     .foregroundStyle(LockInColor.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
-
-                if !character.toneTags.isEmpty {
-                    HStack(spacing: 6) {
-                        ForEach(character.toneTags.prefix(3), id: \.self) { tag in
-                            PillBadge(text: tag, style: .custom(character.accent))
-                        }
-                    }
-                }
             }
         }
-        .padding(14)
+        .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: LockInRadius.l, style: .continuous)
@@ -360,13 +391,13 @@ private struct CharacterCard: View {
             RoundedRectangle(cornerRadius: LockInRadius.l, style: .continuous)
                 .strokeBorder(
                     isSelected ? character.accent.opacity(0.65) : LockInColor.border,
-                    lineWidth: isSelected ? 1.4 : 1
+                    lineWidth: isSelected ? 1.3 : 1
                 )
         )
     }
 }
 
-// MARK: - Clip row
+// MARK: - Clip row (checkbox-style multi-select)
 
 private struct ClipRow: View {
     let clip: VoiceClip
@@ -375,7 +406,7 @@ private struct ClipRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            Image(systemName: isSelected ? "largecircle.fill.circle" : "circle")
+            Image(systemName: isSelected ? "checkmark.square.fill" : "square")
                 .font(.system(size: 18, weight: isSelected ? .bold : .regular))
                 .foregroundStyle(isSelected ? accent : LockInColor.textTertiary)
 
@@ -391,10 +422,9 @@ private struct ClipRow: View {
             }
 
             Spacer(minLength: 0)
-
-            IntensityIndicator(level: clip.intensityLevel, accent: accent)
         }
-        .padding(12)
+        .padding(.vertical, 11)
+        .padding(.horizontal, 12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: LockInRadius.m, style: .continuous)
@@ -403,25 +433,10 @@ private struct ClipRow: View {
         .overlay(
             RoundedRectangle(cornerRadius: LockInRadius.m, style: .continuous)
                 .strokeBorder(
-                    isSelected ? accent.opacity(0.55) : LockInColor.border,
+                    isSelected ? accent.opacity(0.45) : LockInColor.border,
                     lineWidth: isSelected ? 1.2 : 1
                 )
         )
-    }
-}
-
-private struct IntensityIndicator: View {
-    let level: Int
-    let accent: Color
-
-    var body: some View {
-        HStack(spacing: 3) {
-            ForEach(0..<5, id: \.self) { i in
-                Capsule()
-                    .fill(i < level ? accent : LockInColor.border)
-                    .frame(width: 3, height: 12 + CGFloat(i) * 2)
-            }
-        }
     }
 }
 

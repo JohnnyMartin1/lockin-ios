@@ -162,16 +162,23 @@ enum VoiceLibrary {
 
 // MARK: - Persisted selection keys
 
-/// AppStorage keys for the saved alert. Both the canonical IDs and the
-/// denormalized snapshot fields are written on save, so views and the
-/// notification scheduler can read whichever is convenient.
+/// AppStorage keys for the saved alert. We now support multiple sayings per
+/// character, with optional shuffle.
 enum SelectedVoiceKeys {
-    static let characterId      = "lockin.selectedVoice.characterId"
-    static let characterName    = "lockin.selectedVoice.characterName"
-    static let clipId           = "lockin.selectedVoice.clipId"
-    static let sayingTitle      = "lockin.selectedVoice.sayingTitle"
-    static let notificationText = "lockin.selectedVoice.notificationText"
-    static let soundFileName    = "lockin.selectedVoice.soundFileName"
+    static let characterId   = "lockin.selectedVoice.characterId"
+    /// Comma-joined list of selected clip IDs for the current character.
+    static let clipIds       = "lockin.selectedVoice.clipIds"
+}
+
+/// Comma-joined String <-> [String] helper for the saved clip IDs.
+enum SelectedClipsStorage {
+    static func decode(_ raw: String) -> [String] {
+        raw.split(separator: ",").map(String.init).filter { !$0.isEmpty }
+    }
+
+    static func encode(_ ids: [String]) -> String {
+        ids.joined(separator: ",")
+    }
 }
 
 // MARK: - Color hex helper

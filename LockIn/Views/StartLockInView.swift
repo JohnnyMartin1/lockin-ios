@@ -58,20 +58,20 @@ struct StartLockInView: View {
         VoiceLibrary.resolveClip(characterID: savedCharacterID, clipID: savedClipID)
     }
 
-    private var selectedAppNames: [String] {
-        SelectedAppsStorage.decode(savedAppIDsRaw)
-            .compactMap { MockApp.app(withID: $0)?.name }
+    private var selectedAppCount: Int {
+        SelectedAppsStorage.decode(savedAppIDsRaw).count
     }
 
     private var appsValueLabel: String {
-        switch selectedAppNames.count {
+        switch selectedAppCount {
         case 0: return "No apps selected"
-        case 1: return selectedAppNames.first ?? "1 app"
-        case let n where n <= 3: return selectedAppNames.joined(separator: ", ")
-        default:
-            let head = selectedAppNames.prefix(2).joined(separator: ", ")
-            return "\(head), +\(selectedAppNames.count - 2)"
+        case 1: return "1 app selected"
+        default: return "\(selectedAppCount) apps selected"
         }
+    }
+
+    private var savedLimit: LockInLimitOption {
+        LockInLimitOption.option(forMinutes: savedLimitMinutes)
     }
 
     private var scheduledFireDate: Date? {
@@ -188,9 +188,46 @@ struct StartLockInView: View {
                     Divider().overlay(LockInColor.border)
 
                     SetupSummaryRow(
-                        label: "Apps",
-                        value: appsValueLabel,
-                        systemImage: "apps.iphone",
+                        label: "Saying",
+                        value: "\u{201C}\(selectedClip.notificationText)\u{201D}",
+                        systemImage: "quote.bubble",
+                        accent: LockInColor.textSecondary,
+                        trailingIcon: nil
+                    )
+                    .padding(.vertical, 10)
+
+                    Divider().overlay(LockInColor.border)
+
+                    HStack(spacing: 14) {
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .fill(LockInColor.textSecondary.opacity(0.16))
+                                .frame(width: 36, height: 36)
+                            Image(systemName: "speaker.wave.2.fill")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundStyle(LockInColor.textSecondary)
+                        }
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("SOUND")
+                                .font(.system(size: 10, weight: .heavy, design: .rounded))
+                                .tracking(1.4)
+                                .foregroundStyle(LockInColor.textTertiary)
+                            Text(selectedClip.soundFileName)
+                                .font(.system(size: 12, weight: .medium, design: .monospaced))
+                                .foregroundStyle(LockInColor.textSecondary)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                        }
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.vertical, 10)
+
+                    Divider().overlay(LockInColor.border)
+
+                    SetupSummaryRow(
+                        label: "Limit",
+                        value: savedLimit.longLabel,
+                        systemImage: "timer",
                         accent: LockInColor.textSecondary,
                         trailingIcon: nil
                     )
@@ -199,9 +236,9 @@ struct StartLockInView: View {
                     Divider().overlay(LockInColor.border)
 
                     SetupSummaryRow(
-                        label: "Saying",
-                        value: "\u{201C}\(selectedClip.notificationText)\u{201D}",
-                        systemImage: "quote.bubble",
+                        label: "Apps",
+                        value: appsValueLabel,
+                        systemImage: "apps.iphone",
                         accent: LockInColor.textSecondary,
                         trailingIcon: nil
                     )

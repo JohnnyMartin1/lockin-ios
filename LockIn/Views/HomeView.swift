@@ -15,11 +15,6 @@ struct HomeView: View {
         SelectedAppsStorage.decode(savedAppIDsRaw).count
     }
 
-    private var selectedAppNames: [String] {
-        SelectedAppsStorage.decode(savedAppIDsRaw)
-            .compactMap { MockApp.app(withID: $0)?.name }
-    }
-
     private var selectedLimit: LockInLimitOption {
         LockInLimitOption.option(forMinutes: savedLimitMinutes)
     }
@@ -35,11 +30,8 @@ struct HomeView: View {
     private var appsValueLabel: String {
         switch selectedAppCount {
         case 0: return "No apps selected"
-        case 1: return selectedAppNames.first ?? "1 app"
-        case let n where n <= 3: return selectedAppNames.joined(separator: ", ")
-        default:
-            let head = selectedAppNames.prefix(2).joined(separator: ", ")
-            return "\(head), +\(selectedAppCount - 2)"
+        case 1: return "1 app selected"
+        default: return "\(selectedAppCount) apps selected"
         }
     }
 
@@ -85,9 +77,20 @@ struct HomeView: View {
 
             VStack(spacing: 0) {
                 SetupSummaryRow(
-                    label: "Apps",
-                    value: appsValueLabel,
-                    systemImage: "apps.iphone",
+                    label: "Character",
+                    value: selectedCharacter.name,
+                    systemImage: "waveform",
+                    accent: selectedCharacter.accent,
+                    trailingIcon: nil
+                )
+                .padding(.vertical, 12)
+
+                Divider().overlay(LockInColor.border)
+
+                SetupSummaryRow(
+                    label: "Saying",
+                    value: selectedClip.sayingTitle,
+                    systemImage: "quote.bubble",
                     accent: LockInColor.textSecondary,
                     trailingIcon: nil
                 )
@@ -107,37 +110,12 @@ struct HomeView: View {
                 Divider().overlay(LockInColor.border)
 
                 SetupSummaryRow(
-                    label: "Voice",
-                    value: selectedCharacter.name,
-                    systemImage: "waveform",
-                    accent: selectedCharacter.accent,
+                    label: "Apps",
+                    value: appsValueLabel,
+                    systemImage: "apps.iphone",
+                    accent: LockInColor.textSecondary,
                     trailingIcon: nil
                 )
-                .padding(.vertical, 12)
-
-                Divider().overlay(LockInColor.border)
-
-                HStack(alignment: .top, spacing: 14) {
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .fill(LockInColor.textSecondary.opacity(0.16))
-                            .frame(width: 36, height: 36)
-                        Image(systemName: "quote.bubble")
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(LockInColor.textSecondary)
-                    }
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("SAYING")
-                            .font(.system(size: 10, weight: .heavy, design: .rounded))
-                            .tracking(1.4)
-                            .foregroundStyle(LockInColor.textTertiary)
-                        Text("\u{201C}\(selectedClip.notificationText)\u{201D}")
-                            .font(.system(size: 14, weight: .semibold, design: .rounded))
-                            .foregroundStyle(LockInColor.textPrimary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    Spacer(minLength: 0)
-                }
                 .padding(.vertical, 12)
             }
         }

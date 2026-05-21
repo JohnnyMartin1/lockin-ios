@@ -9,8 +9,12 @@ struct AlertSetupView: View {
     @StateObject private var notificationManager = NotificationManager.shared
     @Environment(\.dismiss) private var dismiss
 
-    @AppStorage(SelectedVoiceKeys.characterId) private var savedCharacterID: String = ""
-    @AppStorage(SelectedVoiceKeys.clipId) private var savedClipID: String = ""
+    @AppStorage(SelectedVoiceKeys.characterId)      private var savedCharacterID: String = ""
+    @AppStorage(SelectedVoiceKeys.characterName)    private var savedCharacterName: String = ""
+    @AppStorage(SelectedVoiceKeys.clipId)           private var savedClipID: String = ""
+    @AppStorage(SelectedVoiceKeys.sayingTitle)      private var savedSayingTitle: String = ""
+    @AppStorage(SelectedVoiceKeys.notificationText) private var savedNotificationText: String = ""
+    @AppStorage(SelectedVoiceKeys.soundFileName)    private var savedSoundFileName: String = ""
 
     @State private var selectedCharacterID: String
     @State private var selectedClipID: String
@@ -52,6 +56,7 @@ struct AlertSetupView: View {
                     }
                     charactersSection
                     sayingsSection
+                    previewCard
                     actionButtons
                     if let statusMessage {
                         LockInStatusBanner(message: statusMessage)
@@ -87,8 +92,8 @@ struct AlertSetupView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 8) {
-            LockInType.screenTitle("Choose Your Voice")
-            LockInType.screenSubtitle("Pick the character that yells at you when you start drifting.")
+            LockInType.screenTitle("Choose Your Character")
+            LockInType.screenSubtitle("Pick who yells at you when time is up.")
         }
     }
 
@@ -166,12 +171,57 @@ struct AlertSetupView: View {
         }
     }
 
+    // MARK: - Preview card
+
+    private var previewCard: some View {
+        VStack(alignment: .leading, spacing: LockInSpacing.m) {
+            SectionHeader(title: "Preview", trailing: "What gets sent")
+            LockInCard {
+                VStack(alignment: .leading, spacing: 14) {
+                    HStack(spacing: 12) {
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .fill(selectedCharacter.accent.opacity(0.30))
+                                .frame(width: 40, height: 40)
+                            Image(systemName: "waveform")
+                                .font(.system(size: 16, weight: .bold))
+                                .foregroundStyle(.white)
+                        }
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(selectedCharacter.name)
+                                .font(.system(size: 15, weight: .bold, design: .rounded))
+                                .foregroundStyle(LockInColor.textPrimary)
+                            Text(selectedClip.sayingTitle)
+                                .font(.system(size: 12.5, weight: .medium, design: .rounded))
+                                .foregroundStyle(selectedCharacter.accent)
+                        }
+                        Spacer(minLength: 0)
+                    }
+
+                    Text("\u{201C}\(selectedClip.notificationText)\u{201D}")
+                        .font(.system(size: 15, weight: .semibold, design: .rounded))
+                        .foregroundStyle(LockInColor.textPrimary)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    HStack(spacing: 6) {
+                        Image(systemName: "speaker.wave.2.fill")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundStyle(LockInColor.textTertiary)
+                        Text(selectedClip.soundFileName)
+                            .font(.system(size: 11, weight: .medium, design: .monospaced))
+                            .foregroundStyle(LockInColor.textTertiary)
+                    }
+                }
+            }
+        }
+    }
+
     // MARK: - Actions
 
     private var actionButtons: some View {
         VStack(spacing: 10) {
             PrimaryButton(
-                title: "Preview",
+                title: "Send Test Alert",
                 systemImage: "play.fill",
                 style: .secondary
             ) {
@@ -179,7 +229,7 @@ struct AlertSetupView: View {
             }
 
             PrimaryButton(
-                title: hasUnsavedChanges ? "Save Voice" : "Voice saved",
+                title: hasUnsavedChanges ? "Save Alert" : "Alert saved",
                 systemImage: hasUnsavedChanges ? "tray.and.arrow.down.fill" : "checkmark.seal.fill",
                 style: .primary,
                 isEnabled: hasUnsavedChanges
@@ -193,19 +243,25 @@ struct AlertSetupView: View {
 
     private func selectCharacter(_ character: VoiceCharacter) {
         selectedCharacterID = character.id
-        if let firstClip = character.clips.first {
-            // If switching characters, pick their first saying by default.
-            if !(selectedClipID.hasPrefix(character.id + ".")) {
+        // If the current clip doesn't belong to this character, reset to its first.
+        let currentClip = VoiceLibrary.clip(withID: selectedClipID)
+        if currentClip?.characterId != character.id {
+            if let firstClip = character.clips.first {
                 selectedClipID = firstClip.id
             }
         }
     }
 
     private func saveSelection() {
+        let character = selectedCharacter
         let clip = selectedClip
-        savedCharacterID = clip.characterId
-        savedClipID = clip.id
-        showStatus("Saved. \(selectedCharacter.name) — \u{201C}\(clip.notificationText)\u{201D}")
+        savedCharacterID      = character.id
+        savedCharacterName    = character.name
+        savedClipID           = clip.id
+        savedSayingTitle      = clip.sayingTitle
+        savedNotificationText = clip.notificationText
+        savedSoundFileName    = clip.soundFileName
+        showStatus("Saved. \(character.name) — \u{201C}\(clip.notificationText)\u{201D}")
     }
 
     private func handleSendPreview() async {

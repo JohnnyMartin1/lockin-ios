@@ -3,7 +3,21 @@
 //  LockIn
 //
 //  Central source for the LockIn voice characters and their clips.
-//  All seed data lives here so it is easy to scale to 15–20 voices later.
+//  Keep all character/clip data here so adding more characters later
+//  is a single-file edit.
+//
+//  ──────────────────────────────────────────────────────────────────────
+//  AUDIO FILES
+//  Audio files must be added to the Xcode target. If missing, notifications
+//  fall back to the default notification sound (see NotificationManager
+//  `resolvedSound(for:)`). No crash, no scary error for the user — just a
+//  developer log: "[LockIn] Sound file <name> not found in bundle — using
+//  default sound."
+//
+//  To add: drag each .caf file into the LockIn app target in Xcode, make
+//  sure "Copy items if needed" is on and the LockIn target is checked under
+//  "Add to targets". Filenames must match `soundFileName` below exactly.
+//  ──────────────────────────────────────────────────────────────────────
 //
 
 import SwiftUI
@@ -22,10 +36,8 @@ struct VoiceCharacter: Identifiable, Hashable {
 }
 
 extension VoiceCharacter {
-    /// SwiftUI color derived from the character's accent hex.
     var accent: Color { Color(hex: accentHex) }
 
-    /// Convenience to look up the clips for this character.
     var clips: [VoiceClip] {
         VoiceLibrary.clips(forCharacter: id)
     }
@@ -44,122 +56,71 @@ struct VoiceClip: Identifiable, Hashable {
 // MARK: - Library
 
 enum VoiceLibrary {
-    // MARK: Characters
-
+    /// The three starter characters. Add more by appending here AND adding
+    /// matching entries to `clips` below.
     static let characters: [VoiceCharacter] = [
+        VoiceCharacter(
+            id: "police_officer",
+            name: "Police Officer",
+            archetype: "Authority Check",
+            shortDescription: "Direct, commanding, and a little dramatic.",
+            toneTags: ["Commanding", "Funny", "Loud"],
+            accentHex: 0x3A6FB0,   // muted police blue
+            isPremium: false,
+            clipIDs: [
+                "police_get_off_phone",
+                "police_time_is_up",
+                "police_final_warning"
+            ]
+        ),
+
+        VoiceCharacter(
+            id: "librarian",
+            name: "Librarian",
+            archetype: "Quiet Accountability",
+            shortDescription: "Calm, disappointed, and quietly devastating.",
+            toneTags: ["Quiet", "Judgmental", "Calm"],
+            accentHex: 0x8A6D4E,   // warm sepia / library brown
+            isPremium: false,
+            clipIDs: [
+                "librarian_quiet_please",
+                "librarian_disappointed",
+                "librarian_page_back"
+            ]
+        ),
+
         VoiceCharacter(
             id: "drill_sergeant",
             name: "Drill Sergeant",
             archetype: "Hard Reset",
-            shortDescription: "Direct, loud, no patience.",
+            shortDescription: "Loud, intense, and allergic to excuses.",
             toneTags: ["Aggressive", "Loud", "No excuses"],
-            accentHex: 0xB94135,
+            accentHex: 0xB94135,   // muted military red
             isPremium: false,
             clipIDs: [
-                "drill_sergeant.get_back_to_work",
-                "drill_sergeant.you_said_five_minutes",
-                "drill_sergeant.move",
-                "drill_sergeant.stop_scrolling",
-                "drill_sergeant.lock_in"
-            ]
-        ),
-
-        VoiceCharacter(
-            id: "robot",
-            name: "Robot",
-            archetype: "Cold Logic",
-            shortDescription: "Blunt reminders with zero emotion.",
-            toneTags: ["Mechanical", "Dry", "Direct"],
-            accentHex: 0x5C8FA3,
-            isPremium: false,
-            clipIDs: [
-                "robot.time_exceeded",
-                "robot.attention_threshold",
-                "robot.disengage"
-            ]
-        ),
-
-        VoiceCharacter(
-            id: "anime_coach",
-            name: "Anime Coach",
-            archetype: "Hype Character",
-            shortDescription: "High-energy motivation with chaotic optimism.",
-            toneTags: ["Energetic", "Playful", "Premium"],
-            accentHex: 0xE54F8A,
-            isPremium: true,
-            clipIDs: [
-                "anime_coach.lets_go",
-                "anime_coach.power_up",
-                "anime_coach.hero_mode",
-                "anime_coach.final_form"
-            ]
-        ),
-
-        VoiceCharacter(
-            id: "calm_therapist",
-            name: "Calm Therapist",
-            archetype: "Gentle Reset",
-            shortDescription: "Soft accountability without shame.",
-            toneTags: ["Calm", "Supportive", "Reflective"],
-            accentHex: 0x6E9D7F,
-            isPremium: false,
-            clipIDs: [
-                "calm_therapist.pause",
-                "calm_therapist.reset_cue",
-                "calm_therapist.notice_the_urge",
-                "calm_therapist.honor_it"
-            ]
-        ),
-
-        VoiceCharacter(
-            id: "gym_bro",
-            name: "Gym Bro",
-            archetype: "Discipline Mode",
-            shortDescription: "Treats scrolling like skipping leg day.",
-            toneTags: ["Funny", "Intense", "Motivational"],
-            accentHex: 0xE08A33,
-            isPremium: true,
-            clipIDs: [
-                "gym_bro.enough_scrolling",
-                "gym_bro.skip_leg_day",
-                "gym_bro.rep_your_goals",
-                "gym_bro.phone_down"
+                "drill_lock_in",
+                "drill_get_back_to_work",
+                "drill_times_up"
             ]
         )
     ]
 
-    // MARK: Clips
-
+    /// One row per clip. Each clip's `characterId` must match a `VoiceCharacter.id`.
     static let clips: [VoiceClip] = [
+        // Police Officer
+        VoiceClip(id: "police_get_off_phone", characterId: "police_officer", sayingTitle: "Get Off The Phone", notificationText: "Step away from the phone.",            soundFileName: "police_get_off_phone.caf", intensityLevel: 4, isPremium: false),
+        VoiceClip(id: "police_time_is_up",    characterId: "police_officer", sayingTitle: "Time Is Up",        notificationText: "Time is up. Move along.",              soundFileName: "police_time_is_up.caf",    intensityLevel: 3, isPremium: false),
+        VoiceClip(id: "police_final_warning", characterId: "police_officer", sayingTitle: "Final Warning",     notificationText: "This is your final warning. Lock in.", soundFileName: "police_final_warning.caf", intensityLevel: 5, isPremium: false),
+
+        // Librarian
+        VoiceClip(id: "librarian_quiet_please", characterId: "librarian", sayingTitle: "Quiet Please",  notificationText: "Quiet please. Back to work.",           soundFileName: "librarian_quiet_please.caf", intensityLevel: 2, isPremium: false),
+        VoiceClip(id: "librarian_disappointed", characterId: "librarian", sayingTitle: "Disappointed",  notificationText: "I expected better from you.",           soundFileName: "librarian_disappointed.caf", intensityLevel: 3, isPremium: false),
+        VoiceClip(id: "librarian_page_back",    characterId: "librarian", sayingTitle: "Turn The Page", notificationText: "Turn the page. The scrolling is over.", soundFileName: "librarian_page_back.caf",    intensityLevel: 2, isPremium: false),
+
         // Drill Sergeant
-        VoiceClip(id: "drill_sergeant.get_back_to_work",     characterId: "drill_sergeant", sayingTitle: "Get Back To Work",    notificationText: "Get back to work.",                          soundFileName: "lockin_default.caf", intensityLevel: 4, isPremium: false),
-        VoiceClip(id: "drill_sergeant.you_said_five_minutes", characterId: "drill_sergeant", sayingTitle: "You Said Five Minutes", notificationText: "You said five minutes.",                  soundFileName: "lockin_default.caf", intensityLevel: 3, isPremium: false),
-        VoiceClip(id: "drill_sergeant.move",                  characterId: "drill_sergeant", sayingTitle: "Move",                  notificationText: "Time's up. Move.",                        soundFileName: "lockin_default.caf", intensityLevel: 5, isPremium: false),
-        VoiceClip(id: "drill_sergeant.stop_scrolling",        characterId: "drill_sergeant", sayingTitle: "Stop Scrolling",        notificationText: "Stop scrolling.",                         soundFileName: "lockin_default.caf", intensityLevel: 4, isPremium: false),
-        VoiceClip(id: "drill_sergeant.lock_in",               characterId: "drill_sergeant", sayingTitle: "Lock In",               notificationText: "Lock in.",                                soundFileName: "lockin_default.caf", intensityLevel: 3, isPremium: false),
-
-        // Robot
-        VoiceClip(id: "robot.time_exceeded",          characterId: "robot", sayingTitle: "Time Exceeded",      notificationText: "Time exceeded. Return to task.",       soundFileName: "lockin_default.caf", intensityLevel: 1, isPremium: false),
-        VoiceClip(id: "robot.attention_threshold",    characterId: "robot", sayingTitle: "Attention Threshold", notificationText: "User attention threshold breached.",  soundFileName: "lockin_default.caf", intensityLevel: 1, isPremium: false),
-        VoiceClip(id: "robot.disengage",              characterId: "robot", sayingTitle: "Disengage",          notificationText: "Recommend disengagement.",             soundFileName: "lockin_default.caf", intensityLevel: 2, isPremium: false),
-
-        // Anime Coach
-        VoiceClip(id: "anime_coach.lets_go",     characterId: "anime_coach", sayingTitle: "Let's Go",     notificationText: "Let's go! You've got this!",            soundFileName: "lockin_default.caf", intensityLevel: 4, isPremium: true),
-        VoiceClip(id: "anime_coach.power_up",    characterId: "anime_coach", sayingTitle: "Power Up",     notificationText: "Power up — stop scrolling!",            soundFileName: "lockin_default.caf", intensityLevel: 5, isPremium: true),
-        VoiceClip(id: "anime_coach.hero_mode",   characterId: "anime_coach", sayingTitle: "Hero Mode",    notificationText: "Hero mode: activated. Touch grass.",    soundFileName: "lockin_default.caf", intensityLevel: 3, isPremium: true),
-        VoiceClip(id: "anime_coach.final_form",  characterId: "anime_coach", sayingTitle: "Final Form",   notificationText: "Final form: focus. Try it.",            soundFileName: "lockin_default.caf", intensityLevel: 4, isPremium: true),
-
-        // Calm Therapist
-        VoiceClip(id: "calm_therapist.pause",           characterId: "calm_therapist", sayingTitle: "Pause",           notificationText: "Pause. You know why this fired.",  soundFileName: "lockin_default.caf", intensityLevel: 1, isPremium: false),
-        VoiceClip(id: "calm_therapist.reset_cue",       characterId: "calm_therapist", sayingTitle: "Reset Cue",       notificationText: "This is your reset cue.",          soundFileName: "lockin_default.caf", intensityLevel: 1, isPremium: false),
-        VoiceClip(id: "calm_therapist.notice_the_urge", characterId: "calm_therapist", sayingTitle: "Notice The Urge", notificationText: "Notice the urge. Step away.",      soundFileName: "lockin_default.caf", intensityLevel: 2, isPremium: false),
-        VoiceClip(id: "calm_therapist.honor_it",        characterId: "calm_therapist", sayingTitle: "Honor It",        notificationText: "You scheduled this. Honor it.",    soundFileName: "lockin_default.caf", intensityLevel: 2, isPremium: false),
-
-        // Gym Bro
-        VoiceClip(id: "gym_bro.enough_scrolling", characterId: "gym_bro", sayingTitle: "Enough Scrolling", notificationText: "Bro — that's enough scrolling.",                 soundFileName: "lockin_default.caf", intensityLevel: 3, isPremium: true),
-        VoiceClip(id: "gym_bro.skip_leg_day",     characterId: "gym_bro", sayingTitle: "Skip Leg Day",     notificationText: "You don't skip leg day. Don't skip this.",       soundFileName: "lockin_default.caf", intensityLevel: 3, isPremium: true),
-        VoiceClip(id: "gym_bro.rep_your_goals",   characterId: "gym_bro", sayingTitle: "Rep Your Goals",   notificationText: "Time to rep your goals, not your feed.",         soundFileName: "lockin_default.caf", intensityLevel: 4, isPremium: true),
-        VoiceClip(id: "gym_bro.phone_down",       characterId: "gym_bro", sayingTitle: "Phone Down",       notificationText: "Push through. Phone down.",                      soundFileName: "lockin_default.caf", intensityLevel: 4, isPremium: true)
+        VoiceClip(id: "drill_lock_in",          characterId: "drill_sergeant", sayingTitle: "Lock In",          notificationText: "Lock in.",          soundFileName: "drill_lock_in.caf",          intensityLevel: 5, isPremium: false),
+        VoiceClip(id: "drill_get_back_to_work", characterId: "drill_sergeant", sayingTitle: "Get Back To Work", notificationText: "Get back to work.", soundFileName: "drill_get_back_to_work.caf", intensityLevel: 4, isPremium: false),
+        VoiceClip(id: "drill_times_up",         characterId: "drill_sergeant", sayingTitle: "Time's Up",        notificationText: "Time's up. Move.",  soundFileName: "drill_times_up.caf",         intensityLevel: 5, isPremium: false)
     ]
 
     // MARK: Lookup helpers
@@ -186,8 +147,8 @@ enum VoiceLibrary {
         clips.first { $0.characterId == characterID }
     }
 
-    /// Resolves a saved (characterID, clipID) pair to a concrete clip, falling
-    /// back to the character's default clip or the library default.
+    /// Resolves a (characterID, clipID) pair to a concrete clip, falling back
+    /// to the character's first clip and then the library default.
     static func resolveClip(characterID: String, clipID: String) -> VoiceClip {
         if let clip = clip(withID: clipID), clip.characterId == characterID {
             return clip
@@ -201,11 +162,16 @@ enum VoiceLibrary {
 
 // MARK: - Persisted selection keys
 
-/// New unified keys for the saved voice selection.
-/// Older keys from earlier phases are intentionally not migrated.
+/// AppStorage keys for the saved alert. Both the canonical IDs and the
+/// denormalized snapshot fields are written on save, so views and the
+/// notification scheduler can read whichever is convenient.
 enum SelectedVoiceKeys {
-    static let characterId = "lockin.selectedVoice.characterId"
-    static let clipId      = "lockin.selectedVoice.clipId"
+    static let characterId      = "lockin.selectedVoice.characterId"
+    static let characterName    = "lockin.selectedVoice.characterName"
+    static let clipId           = "lockin.selectedVoice.clipId"
+    static let sayingTitle      = "lockin.selectedVoice.sayingTitle"
+    static let notificationText = "lockin.selectedVoice.notificationText"
+    static let soundFileName    = "lockin.selectedVoice.soundFileName"
 }
 
 // MARK: - Color hex helper

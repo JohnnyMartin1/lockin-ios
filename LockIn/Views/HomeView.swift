@@ -15,7 +15,8 @@ struct HomeView: View {
     @AppStorage(SelectedVoiceKeys.characterId)         private var savedCharacterID: String  = ""
     @AppStorage(SelectedVoiceKeys.clipIds)             private var savedClipIDsRaw: String   = ""
 
-    @StateObject private var familyStore = FamilySelectionStore.shared
+    @StateObject private var familyStore  = FamilySelectionStore.shared
+    @StateObject private var dailyMonitor = DeviceActivityManager.shared
 
     // MARK: - Derived
 
@@ -93,6 +94,9 @@ struct HomeView: View {
                 }
             }
             .toolbar(.hidden, for: .navigationBar)
+            .onAppear {
+                dailyMonitor.refreshStatus()
+            }
         }
     }
 
@@ -101,9 +105,19 @@ struct HomeView: View {
     private var headerSection: some View {
         VStack(alignment: .leading, spacing: 6) {
             LockInType.wordmark("LOCKIN")
-            Text("Your screen-time wake-up call.")
-                .font(.system(size: 13.5, weight: .medium, design: .rounded))
-                .foregroundStyle(LockInColor.textSecondary)
+            HStack(spacing: 8) {
+                Text("Your screen-time wake-up call.")
+                    .font(.system(size: 13.5, weight: .medium, design: .rounded))
+                    .foregroundStyle(LockInColor.textSecondary)
+                Spacer(minLength: 0)
+                if dailyMonitor.isMonitoringDailyLimit {
+                    PillBadge(
+                        text: "Monitoring on",
+                        style: .accent,
+                        systemImage: "dot.radiowaves.left.and.right"
+                    )
+                }
+            }
         }
         .padding(.top, LockInSpacing.s)
     }

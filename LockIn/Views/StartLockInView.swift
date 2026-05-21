@@ -2,8 +2,9 @@
 //  StartLockInView.swift
 //  LockIn
 //
-//  Mode-aware preview screen. Real app monitoring will plug in later via
-//  FutureScreenTimeManager once the FamilyControls entitlement lands.
+//  Mode-aware screen. Daily Limit mode now starts real DeviceActivity
+//  monitoring (Phase C). LockIn Mode is still a preview placeholder until
+//  Phase D wires slip-threshold monitoring.
 //
 
 import SwiftUI
@@ -23,7 +24,9 @@ struct StartLockInView: View {
     @AppStorage(SelectedVoiceKeys.clipIds)            private var savedClipIDsRaw: String   = ""
     @AppStorage(SessionKeys.scheduledFireDate)        private var scheduledFireEpoch: Double = 0
 
-    @StateObject private var familyStore = FamilySelectionStore.shared
+    @StateObject private var familyStore   = FamilySelectionStore.shared
+    @StateObject private var screenTime    = ScreenTimeManager.shared
+    @StateObject private var dailyMonitor  = DeviceActivityManager.shared
 
     @State private var statusMessage: String?
     @State private var hasRequestedPermission = false
@@ -70,7 +73,7 @@ struct StartLockInView: View {
         scheduledFireEpoch > 0 ? Date(timeIntervalSince1970: scheduledFireEpoch) : nil
     }
 
-    private var primaryButtonTitle: String {
+    private var previewButtonTitle: String {
         switch mode {
         case .some(.dailyLimit):    return "Preview Alert"
         case .some(.lockInSession): return "Start Preview Session"
@@ -88,12 +91,30 @@ struct StartLockInView: View {
     private var monitoringNote: String {
         switch mode {
         case .some(.dailyLimit):
-            return "Automatic app monitoring will turn on after Apple Screen Time permissions are enabled."
+            if dailyMonitor.isMonitoringDailyLimit {
+                return "Daily limit monitoring is on. LockIn alerts when your selected apps reach \(LimitFormatter.minutes(dailyLimitMinutes)) today."
+            }
+            if !screenTime.authState.isApproved {
+                return "Enable Screen Time access on the Apps screen to start Daily Limit monitoring."
+            }
+            if !familyStore.hasAnySelection {
+                return "Choose real apps with Screen Time access to start Daily Limit monitoring."
+            }
+            return "LockIn will alert you when your selected apps reach \(LimitFormatter.minutes(dailyLimitMinutes)) today."
         case .some(.lockInSession):
-            return "For now, this previews the alert. App monitoring connects later."
+            return "For now, this previews the alert. App monitoring for LockIn Mode connects later."
         case .none:
             return "Set up a mode to get started."
         }
+    }
+
+    /// True when the Daily Limit primary action ("Start Daily Limit") can be tapped.
+    private var canStartDailyLimit: Bool {
+        mode == .some(.dailyLimit)
+            && screenTime.authState.isApproved
+            && familyStore.hasAnySelection
+            && !savedCharacterID.isEmpty
+            && !SelectedClipsStorage.decode(savedClipIDsRaw).isEmpty
     }
 
     var body: some View {
@@ -109,11 +130,14 @@ struct StartLockInView: View {
                     }
                     summaryCard
                     monitoringNoteCard
+                    if mode == .some(.dailyLimit) {
+                        dailyLimitSection
+                    }
                     if hasPendingLockIn {
                         activeSessionCard
                         cancelButton
                     } else {
-                        primaryButton
+                        previewButton
                     }
                     debugDisclosure
                     if let statusMessage {
@@ -135,6 +159,11 @@ struct StartLockInView: View {
             }
             await refreshPending()
         }
+        .onAppear {
+            // Reflect OS-truth on every visit (monitoring persists across launches).
+            dailyMonitor.refreshStatus()
+            screenTime.refreshAuthorizationStatus()
+        }
     }
 
     // MARK: - Top bar / header
@@ -144,11 +173,27 @@ struct StartLockInView: View {
             LockInBackPill(action: { dismiss() }, label: "Home")
             Spacer()
             PillBadge(
-                text: hasPendingLockIn ? "Running" : (mode?.displayName ?? "No mode"),
-                style: hasPendingLockIn ? .accent : .neutral,
-                systemImage: hasPendingLockIn ? "hourglass" : (mode?.systemImage ?? "switch.2")
+                text: topBarPillText,
+                style: topBarPillIsActive ? .accent : .neutral,
+                systemImage: topBarPillIcon
             )
         }
+    }
+
+    private var topBarPillText: String {
+        if dailyMonitor.isMonitoringDailyLimit { return "Monitoring" }
+        if hasPendingLockIn                    { return "Preview" }
+        return mode?.displayName ?? "No mode"
+    }
+
+    private var topBarPillIcon: String {
+        if dailyMonitor.isMonitoringDailyLimit { return "dot.radiowaves.left.and.right" }
+        if hasPendingLockIn                    { return "hourglass" }
+        return mode?.systemImage ?? "switch.2"
+    }
+
+    private var topBarPillIsActive: Bool {
+        dailyMonitor.isMonitoringDailyLimit || hasPendingLockIn
     }
 
     private var header: some View {
@@ -312,13 +357,78 @@ struct StartLockInView: View {
         }
     }
 
-    // MARK: - Primary
+    // MARK: - Daily Limit (real monitoring)
 
-    private var primaryButton: some View {
+    private var dailyLimitSection: some View {
+        LockInCard(emphasis: dailyMonitor.isMonitoringDailyLimit ? .accent : .standard) {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(spacing: 10) {
+                    Image(systemName: dailyMonitor.isMonitoringDailyLimit
+                          ? "dot.radiowaves.left.and.right"
+                          : "hourglass")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundStyle(dailyMonitor.isMonitoringDailyLimit
+                                         ? LockInColor.accent
+                                         : LockInColor.textSecondary)
+                    Text(dailyMonitor.isMonitoringDailyLimit ? "Monitoring is on" : "Daily Limit")
+                        .font(.system(size: 13, weight: .heavy, design: .rounded))
+                        .tracking(1.0)
+                        .foregroundStyle(LockInColor.textPrimary)
+                    Spacer(minLength: 0)
+                    Text(LimitFormatter.minutes(dailyLimitMinutes))
+                        .font(.system(size: 12, weight: .bold, design: .rounded))
+                        .foregroundStyle(LockInColor.textTertiary)
+                }
+
+                if dailyMonitor.isMonitoringDailyLimit {
+                    PrimaryButton(
+                        title: "Stop Daily Limit",
+                        systemImage: "stop.circle.fill",
+                        style: .secondary
+                    ) {
+                        handleStopDailyLimit()
+                    }
+                } else {
+                    PrimaryButton(
+                        title: "Start Daily Limit",
+                        systemImage: "bolt.fill",
+                        style: .primary,
+                        isEnabled: canStartDailyLimit
+                    ) {
+                        handleStartDailyLimit()
+                    }
+
+                    if !canStartDailyLimit {
+                        Text(blockReason)
+                            .font(.system(size: 12, weight: .medium, design: .rounded))
+                            .foregroundStyle(LockInColor.textTertiary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+        }
+    }
+
+    private var blockReason: String {
+        if !screenTime.authState.isApproved {
+            return "Enable Screen Time access on the Apps screen first."
+        }
+        if !familyStore.hasAnySelection {
+            return "Choose real apps with Screen Time access on the Apps screen first."
+        }
+        if savedCharacterID.isEmpty || SelectedClipsStorage.decode(savedClipIDsRaw).isEmpty {
+            return "Pick a character and at least one saying on the Voice screen first."
+        }
+        return ""
+    }
+
+    // MARK: - Preview (local notification test)
+
+    private var previewButton: some View {
         PrimaryButton(
-            title: primaryButtonTitle,
-            systemImage: mode == nil ? "switch.2" : "bolt.fill",
-            style: .primary,
+            title: previewButtonTitle,
+            systemImage: mode == nil ? "switch.2" : "play.fill",
+            style: mode == .some(.dailyLimit) ? .secondary : .primary,
             isEnabled: mode != nil
         ) {
             Task { await handlePrimary() }
@@ -360,7 +470,32 @@ struct StartLockInView: View {
         }
     }
 
-    // MARK: - Actions
+    // MARK: - Daily Limit actions
+
+    private func handleStartDailyLimit() {
+        guard canStartDailyLimit else {
+            showStatus(blockReason)
+            return
+        }
+        let result = dailyMonitor.startDailyLimitMonitoring(
+            selection: familyStore.selection,
+            dailyLimitMinutes: dailyLimitMinutes,
+            isAuthorized: screenTime.authState.isApproved
+        )
+        switch result {
+        case .success:
+            showStatus("Daily limit monitoring is on. LockIn will alert you when your selected apps reach \(LimitFormatter.minutes(dailyLimitMinutes)) today.")
+        case .failure(let error):
+            showStatus(error.errorDescription ?? "Could not start Daily Limit.")
+        }
+    }
+
+    private func handleStopDailyLimit() {
+        dailyMonitor.stopDailyLimitMonitoring()
+        showStatus("Daily limit monitoring stopped.")
+    }
+
+    // MARK: - Preview actions
 
     private func handlePrimary() async {
         switch notificationManager.authState {

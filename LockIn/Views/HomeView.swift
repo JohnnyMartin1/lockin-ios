@@ -2,283 +2,230 @@
 //  HomeView.swift
 //  LockIn
 //
-//  Created by Catherine Fratila on 5/20/26.
-//
 
 import SwiftUI
 
 struct HomeView: View {
-    @AppStorage(SelectedAlertKeys.voiceName) private var savedVoiceName: String = ""
-    @AppStorage(SelectedAlertKeys.sayingTitle) private var savedSayingTitle: String = ""
-    @AppStorage(SelectedAlertKeys.notificationText) private var savedNotificationText: String = ""
+    @AppStorage(SelectedAppsKeys.ids) private var savedAppIDsRaw: String = ""
     @AppStorage(SelectedLimitKeys.minutes) private var savedLimitMinutes: Int = LockInLimitOption.defaultMinutes
+    @AppStorage(SelectedVoiceKeys.characterId) private var savedCharacterID: String = ""
+    @AppStorage(SelectedVoiceKeys.clipId) private var savedClipID: String = ""
 
-    private var savedLimitOption: LockInLimitOption {
+    private var selectedAppCount: Int {
+        SelectedAppsStorage.decode(savedAppIDsRaw).count
+    }
+
+    private var selectedAppNames: [String] {
+        SelectedAppsStorage.decode(savedAppIDsRaw)
+            .compactMap { MockApp.app(withID: $0)?.name }
+    }
+
+    private var selectedLimit: LockInLimitOption {
         LockInLimitOption.option(forMinutes: savedLimitMinutes)
+    }
+
+    private var selectedCharacter: VoiceCharacter {
+        VoiceLibrary.character(withID: savedCharacterID) ?? VoiceLibrary.defaultCharacter
+    }
+
+    private var selectedClip: VoiceClip {
+        VoiceLibrary.resolveClip(characterID: savedCharacterID, clipID: savedClipID)
+    }
+
+    private var appsValueLabel: String {
+        switch selectedAppCount {
+        case 0: return "No apps selected"
+        case 1: return selectedAppNames.first ?? "1 app"
+        case let n where n <= 3: return selectedAppNames.joined(separator: ", ")
+        default:
+            let head = selectedAppNames.prefix(2).joined(separator: ", ")
+            return "\(head), +\(selectedAppCount - 2)"
+        }
     }
 
     var body: some View {
         NavigationStack {
             ZStack {
-                backgroundLayer.ignoresSafeArea()
+                LockInBackground()
 
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 28) {
-                        header
-                        summarySection
-                        cardGrid
+                    VStack(alignment: .leading, spacing: LockInSpacing.xl) {
+                        headerSection
+                        currentSetupCard
+                        startCTA
+                        setupRows
                         footerNote
                     }
-                    .padding(.horizontal, 24)
-                    .padding(.top, 24)
-                    .padding(.bottom, 48)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, LockInSpacing.xl)
+                    .padding(.top, LockInSpacing.xxl)
+                    .padding(.bottom, LockInSpacing.xxxl)
                 }
             }
             .toolbar(.hidden, for: .navigationBar)
         }
     }
 
-    // MARK: - Summary
-
-    private var summarySection: some View {
-        VStack(spacing: 12) {
-            if !savedVoiceName.isEmpty {
-                currentAlertCard
-            }
-            currentLimitCard
-        }
-    }
-
-    // MARK: - Background
-
-    private var backgroundLayer: some View {
-        ZStack {
-            Color.black
-            RadialGradient(
-                colors: [
-                    Color(red: 0.85, green: 0.10, blue: 0.20).opacity(0.35),
-                    Color.black.opacity(0)
-                ],
-                center: .topTrailing,
-                startRadius: 20,
-                endRadius: 420
-            )
-            RadialGradient(
-                colors: [
-                    Color(red: 0.30, green: 0.10, blue: 0.45).opacity(0.25),
-                    Color.black.opacity(0)
-                ],
-                center: .bottomLeading,
-                startRadius: 20,
-                endRadius: 500
-            )
-        }
-    }
-
     // MARK: - Header
 
-    private var header: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 10) {
-                Image(systemName: "lock.shield.fill")
-                    .font(.system(size: 22, weight: .bold))
-                    .foregroundStyle(
-                        LinearGradient(
-                            colors: [Color.red, Color.orange],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-                Text("LOCKIN")
-                    .font(.system(size: 14, weight: .heavy, design: .rounded))
-                    .tracking(4)
-                    .foregroundStyle(.white.opacity(0.65))
-            }
-
-            Text("LockIn")
-                .font(.system(size: 56, weight: .black, design: .rounded))
-                .foregroundStyle(.white)
-
-            Text("Loud accountability for doomscrolling.")
-                .font(.system(size: 17, weight: .medium, design: .rounded))
-                .foregroundStyle(.white.opacity(0.7))
+    private var headerSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            LockInType.wordmark("LOCKIN", size: 22)
+            Text("Your screen-time wake-up call.")
+                .font(.system(size: 14, weight: .medium, design: .rounded))
+                .foregroundStyle(LockInColor.textSecondary)
         }
+        .padding(.top, LockInSpacing.s)
     }
 
-    // MARK: - Current alert card
+    // MARK: - Current setup
 
-    private var currentAlertCard: some View {
-        NavigationLink {
-            AlertSetupView()
-        } label: {
-            HStack(alignment: .center, spacing: 14) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(
-                            LinearGradient(
-                                colors: [Color.red, Color.orange],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
-                        .frame(width: 46, height: 46)
-                    Image(systemName: "megaphone.fill")
-                        .font(.system(size: 20, weight: .bold))
-                        .foregroundStyle(.white)
-                }
+    private var currentSetupCard: some View {
+        VStack(alignment: .leading, spacing: LockInSpacing.l) {
+            SectionHeader(title: "Current Setup", trailing: "Today")
 
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("YOUR ALERT")
-                        .font(.system(size: 11, weight: .heavy, design: .rounded))
-                        .tracking(1.8)
-                        .foregroundStyle(.white.opacity(0.55))
-                    Text(savedVoiceName)
-                        .font(.system(size: 17, weight: .bold, design: .rounded))
-                        .foregroundStyle(.white)
-                    if !savedNotificationText.isEmpty {
-                        Text("\u{201C}\(savedNotificationText)\u{201D}")
-                            .font(.system(size: 13, weight: .medium, design: .rounded))
-                            .foregroundStyle(.white.opacity(0.7))
-                            .lineLimit(1)
-                    }
-                }
-
-                Spacer(minLength: 0)
-
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 14, weight: .bold))
-                    .foregroundStyle(.white.opacity(0.45))
-            }
-            .padding(16)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .fill(Color.white.opacity(0.06))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
-            )
-        }
-        .buttonStyle(PressableScaleStyle())
-    }
-
-    // MARK: - Current limit card
-
-    private var currentLimitCard: some View {
-        NavigationLink {
-            LimitSetupView()
-        } label: {
-            HStack(alignment: .center, spacing: 14) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(
-                            LinearGradient(
-                                colors: [
-                                    Color(red: 0.30, green: 0.10, blue: 0.45),
-                                    Color(red: 0.85, green: 0.10, blue: 0.20)
-                                ],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
-                        .frame(width: 46, height: 46)
-                    Image(systemName: "timer")
-                        .font(.system(size: 20, weight: .bold))
-                        .foregroundStyle(.white)
-                }
-
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("YOUR LIMIT")
-                        .font(.system(size: 11, weight: .heavy, design: .rounded))
-                        .tracking(1.8)
-                        .foregroundStyle(.white.opacity(0.55))
-                    Text(savedLimitOption.longLabel)
-                        .font(.system(size: 17, weight: .bold, design: .rounded))
-                        .foregroundStyle(.white)
-                    Text("Before LockIn yells at you.")
-                        .font(.system(size: 13, weight: .medium, design: .rounded))
-                        .foregroundStyle(.white.opacity(0.7))
-                        .lineLimit(1)
-                }
-
-                Spacer(minLength: 0)
-
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 14, weight: .bold))
-                    .foregroundStyle(.white.opacity(0.45))
-            }
-            .padding(16)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .fill(Color.white.opacity(0.06))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
-            )
-        }
-        .buttonStyle(PressableScaleStyle())
-    }
-
-    // MARK: - Card grid
-
-    private var cardGrid: some View {
-        LazyVGrid(
-            columns: [
-                GridItem(.flexible(), spacing: 16),
-                GridItem(.flexible(), spacing: 16)
-            ],
-            spacing: 16
-        ) {
-            Button {
-            } label: {
-                ActionCard(
-                    title: "Pick Apps",
-                    subtitle: "Choose what distracts you",
+            VStack(spacing: 0) {
+                SetupSummaryRow(
+                    label: "Apps",
+                    value: appsValueLabel,
                     systemImage: "apps.iphone",
-                    style: .neutral
+                    accent: LockInColor.textSecondary,
+                    trailingIcon: nil
                 )
-            }
-            .buttonStyle(PressableScaleStyle())
+                .padding(.vertical, 12)
 
-            NavigationLink {
-                LimitSetupView()
-            } label: {
-                ActionCard(
-                    title: "Set Limit",
-                    subtitle: "How long is too long?",
+                Divider().overlay(LockInColor.border)
+
+                SetupSummaryRow(
+                    label: "Limit",
+                    value: selectedLimit.longLabel,
                     systemImage: "timer",
-                    style: .neutral
+                    accent: LockInColor.textSecondary,
+                    trailingIcon: nil
                 )
-            }
-            .buttonStyle(PressableScaleStyle())
+                .padding(.vertical, 12)
 
-            NavigationLink {
-                AlertSetupView()
-            } label: {
-                ActionCard(
-                    title: "Customize Alert",
-                    subtitle: "Pick your wake-up call",
-                    systemImage: "speaker.wave.3.fill",
-                    style: .neutral
-                )
-            }
-            .buttonStyle(PressableScaleStyle())
+                Divider().overlay(LockInColor.border)
 
-            NavigationLink {
-                StartLockInView()
-            } label: {
-                ActionCard(
-                    title: "Start LockIn",
-                    subtitle: "Hold yourself accountable",
-                    systemImage: "bolt.fill",
-                    style: .primary
+                SetupSummaryRow(
+                    label: "Voice",
+                    value: selectedCharacter.name,
+                    systemImage: "waveform",
+                    accent: selectedCharacter.accent,
+                    trailingIcon: nil
                 )
+                .padding(.vertical, 12)
+
+                Divider().overlay(LockInColor.border)
+
+                HStack(alignment: .top, spacing: 14) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .fill(LockInColor.textSecondary.opacity(0.16))
+                            .frame(width: 36, height: 36)
+                        Image(systemName: "quote.bubble")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(LockInColor.textSecondary)
+                    }
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("SAYING")
+                            .font(.system(size: 10, weight: .heavy, design: .rounded))
+                            .tracking(1.4)
+                            .foregroundStyle(LockInColor.textTertiary)
+                        Text("\u{201C}\(selectedClip.notificationText)\u{201D}")
+                            .font(.system(size: 14, weight: .semibold, design: .rounded))
+                            .foregroundStyle(LockInColor.textPrimary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .padding(.vertical, 12)
             }
-            .buttonStyle(PressableScaleStyle())
+        }
+        .padding(LockInSpacing.l)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: LockInRadius.l, style: .continuous)
+                .fill(LockInColor.surface)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: LockInRadius.l, style: .continuous)
+                .strokeBorder(LockInColor.border, lineWidth: 1)
+        )
+    }
+
+    // MARK: - Primary CTA
+
+    private var startCTA: some View {
+        NavigationLink {
+            StartLockInView()
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "bolt.fill")
+                    .font(.system(size: 17, weight: .bold))
+                Text("Start LockIn")
+                    .font(.system(size: 18, weight: .bold, design: .rounded))
+                Spacer()
+                Image(systemName: "arrow.right")
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundStyle(.white.opacity(0.7))
+            }
+            .foregroundStyle(.white)
+            .padding(.vertical, 20)
+            .padding(.horizontal, 22)
+            .frame(maxWidth: .infinity)
+            .background(LockInColor.accent)
+            .clipShape(RoundedRectangle(cornerRadius: LockInRadius.l, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: LockInRadius.l, style: .continuous)
+                    .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
+            )
+        }
+        .buttonStyle(PressableScaleStyle())
+    }
+
+    // MARK: - Setup rows
+
+    private var setupRows: some View {
+        VStack(alignment: .leading, spacing: LockInSpacing.m) {
+            SectionHeader(title: "Setup")
+
+            VStack(spacing: 10) {
+                NavigationLink {
+                    AppSelectionView()
+                } label: {
+                    SetupRowCard(
+                        title: "Apps",
+                        subtitle: appsValueLabel,
+                        systemImage: "apps.iphone",
+                        accent: LockInColor.textSecondary
+                    )
+                }
+                .buttonStyle(PressableScaleStyle())
+
+                NavigationLink {
+                    LimitSetupView()
+                } label: {
+                    SetupRowCard(
+                        title: "Limit",
+                        subtitle: selectedLimit.longLabel,
+                        systemImage: "timer",
+                        accent: LockInColor.textSecondary
+                    )
+                }
+                .buttonStyle(PressableScaleStyle())
+
+                NavigationLink {
+                    AlertSetupView()
+                } label: {
+                    SetupRowCard(
+                        title: "Voice",
+                        subtitle: "\(selectedCharacter.name) — \(selectedClip.sayingTitle)",
+                        systemImage: "waveform",
+                        accent: selectedCharacter.accent
+                    )
+                }
+                .buttonStyle(PressableScaleStyle())
+            }
         }
     }
 
@@ -286,96 +233,58 @@ struct HomeView: View {
 
     private var footerNote: some View {
         Text("No accounts. No tracking. Just you and your screen time.")
-            .font(.footnote)
-            .foregroundStyle(.white.opacity(0.4))
+            .font(.system(size: 12, weight: .medium, design: .rounded))
+            .foregroundStyle(LockInColor.textMuted)
             .frame(maxWidth: .infinity, alignment: .center)
-            .padding(.top, 8)
+            .padding(.top, LockInSpacing.m)
     }
 }
 
-// MARK: - Action card (visual)
+// MARK: - Setup row card
 
-private struct ActionCard: View {
-    enum Style {
-        case neutral
-        case primary
-    }
-
+private struct SetupRowCard: View {
     let title: String
     let subtitle: String
     let systemImage: String
-    let style: Style
+    var accent: Color = LockInColor.textSecondary
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        HStack(spacing: 14) {
             ZStack {
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(iconBackground)
-                    .frame(width: 44, height: 44)
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(accent.opacity(0.16))
+                    .frame(width: 40, height: 40)
                 Image(systemName: systemImage)
-                    .font(.system(size: 20, weight: .bold))
-                    .foregroundStyle(.white)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(accent)
+            }
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.system(size: 16, weight: .bold, design: .rounded))
+                    .foregroundStyle(LockInColor.textPrimary)
+                Text(subtitle)
+                    .font(.system(size: 13, weight: .medium, design: .rounded))
+                    .foregroundStyle(LockInColor.textSecondary)
+                    .lineLimit(1)
             }
 
             Spacer(minLength: 0)
 
-            VStack(alignment: .leading, spacing: 4) {
-                Text(title)
-                    .font(.system(size: 18, weight: .bold, design: .rounded))
-                    .foregroundStyle(.white)
-                Text(subtitle)
-                    .font(.system(size: 13, weight: .medium, design: .rounded))
-                    .foregroundStyle(subtitleColor)
-                    .lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+            Image(systemName: "chevron.right")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(LockInColor.textTertiary)
         }
-        .padding(18)
-        .frame(maxWidth: .infinity, minHeight: 160, alignment: .topLeading)
-        .background(cardBackground)
-        .overlay(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .strokeBorder(borderColor, lineWidth: 1)
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: LockInRadius.m, style: .continuous)
+                .fill(LockInColor.surface)
         )
-        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-    }
-
-    @ViewBuilder
-    private var cardBackground: some View {
-        switch style {
-        case .neutral:
-            Color.white.opacity(0.06)
-        case .primary:
-            LinearGradient(
-                colors: [
-                    Color(red: 0.95, green: 0.18, blue: 0.30),
-                    Color(red: 0.65, green: 0.08, blue: 0.20)
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-        }
-    }
-
-    private var borderColor: Color {
-        switch style {
-        case .neutral: return .white.opacity(0.08)
-        case .primary: return .white.opacity(0.15)
-        }
-    }
-
-    private var iconBackground: Color {
-        switch style {
-        case .neutral: return .white.opacity(0.10)
-        case .primary: return .white.opacity(0.18)
-        }
-    }
-
-    private var subtitleColor: Color {
-        switch style {
-        case .neutral: return .white.opacity(0.55)
-        case .primary: return .white.opacity(0.85)
-        }
+        .overlay(
+            RoundedRectangle(cornerRadius: LockInRadius.m, style: .continuous)
+                .strokeBorder(LockInColor.border, lineWidth: 1)
+        )
     }
 }
 

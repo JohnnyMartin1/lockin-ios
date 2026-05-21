@@ -2,8 +2,6 @@
 //  StartLockInView.swift
 //  LockIn
 //
-//  Created by Catherine Fratila on 5/20/26.
-//
 
 import SwiftUI
 import UserNotifications
@@ -13,47 +11,104 @@ struct StartLockInView: View {
     @Environment(\.dismiss) private var dismiss
 
     @AppStorage(SelectedLimitKeys.minutes) private var savedLimitMinutes: Int = LockInLimitOption.defaultMinutes
-    @AppStorage(SelectedAlertKeys.id) private var savedClipID: String = ""
-    @AppStorage(SelectedAlertKeys.voiceName) private var savedVoiceName: String = ""
-    @AppStorage(SelectedAlertKeys.notificationText) private var savedNotificationText: String = ""
-    @AppStorage(SelectedAlertKeys.soundFileName) private var savedSoundFileName: String = ""
+    @AppStorage(SelectedAppsKeys.ids) private var savedAppIDsRaw: String = ""
+    @AppStorage(SelectedVoiceKeys.characterId) private var savedCharacterID: String = ""
+    @AppStorage(SelectedVoiceKeys.clipId) private var savedClipID: String = ""
+    @AppStorage(SessionKeys.scheduledFireDate) private var scheduledFireEpoch: Double = 0
 
     @State private var statusMessage: String?
     @State private var hasRequestedPermission = false
     @State private var hasPendingLockIn = false
+    @State private var selectedDurationOption: DurationOption
+    @State private var showDebugSection = false
 
-    private var selectedLimit: LockInLimitOption {
-        LockInLimitOption.option(forMinutes: savedLimitMinutes)
+    enum DurationOption: Hashable {
+        case seconds(Int)
+        case savedLimit
+
+        func seconds(savedLimitMinutes: Int) -> TimeInterval {
+            switch self {
+            case .seconds(let s): return TimeInterval(s)
+            case .savedLimit:     return TimeInterval(savedLimitMinutes * 60)
+            }
+        }
+
+        func label(savedLimitMinutes: Int) -> String {
+            switch self {
+            case .seconds(let s) where s < 60: return "\(s) sec"
+            case .seconds(let s):              return "\(s / 60) min"
+            case .savedLimit:
+                let limit = LockInLimitOption.option(forMinutes: savedLimitMinutes)
+                return "Limit \u{00B7} \(limit.shortLabel)"
+            }
+        }
     }
 
-    private var selectedClip: LockInVoiceClip {
-        if !savedClipID.isEmpty, let clip = LockInVoiceClip.clip(withID: savedClipID) {
-            return clip
+    init() {
+        _selectedDurationOption = State(initialValue: .seconds(30))
+    }
+
+    // MARK: - Derived state
+
+    private var selectedCharacter: VoiceCharacter {
+        VoiceLibrary.character(withID: savedCharacterID) ?? VoiceLibrary.defaultCharacter
+    }
+
+    private var selectedClip: VoiceClip {
+        VoiceLibrary.resolveClip(characterID: savedCharacterID, clipID: savedClipID)
+    }
+
+    private var selectedAppNames: [String] {
+        SelectedAppsStorage.decode(savedAppIDsRaw)
+            .compactMap { MockApp.app(withID: $0)?.name }
+    }
+
+    private var appsValueLabel: String {
+        switch selectedAppNames.count {
+        case 0: return "No apps selected"
+        case 1: return selectedAppNames.first ?? "1 app"
+        case let n where n <= 3: return selectedAppNames.joined(separator: ", ")
+        default:
+            let head = selectedAppNames.prefix(2).joined(separator: ", ")
+            return "\(head), +\(selectedAppNames.count - 2)"
         }
-        return LockInVoiceClip.defaultClip
+    }
+
+    private var scheduledFireDate: Date? {
+        scheduledFireEpoch > 0 ? Date(timeIntervalSince1970: scheduledFireEpoch) : nil
+    }
+
+    private var durationOptions: [DurationOption] {
+        [.seconds(10), .seconds(30), .seconds(60), .savedLimit]
     }
 
     var body: some View {
         ZStack {
-            backgroundLayer.ignoresSafeArea()
+            LockInBackground()
 
             ScrollView {
-                VStack(alignment: .leading, spacing: 24) {
+                VStack(alignment: .leading, spacing: LockInSpacing.xl) {
                     topBar
                     header
                     if notificationManager.authState == .denied {
-                        permissionDeniedCard
+                        permissionWarning
                     }
-                    summaryCard
-                    actionButtons
-                    debugSection
+                    summarySection
+                    if hasPendingLockIn {
+                        activeSessionCard
+                        cancelButton
+                    } else {
+                        durationSection
+                        startButton
+                    }
+                    debugDisclosure
                     if let statusMessage {
-                        statusBanner(statusMessage)
+                        LockInStatusBanner(message: statusMessage)
                     }
                 }
-                .padding(.horizontal, 24)
-                .padding(.top, 8)
-                .padding(.bottom, 48)
+                .padding(.horizontal, LockInSpacing.xl)
+                .padding(.top, LockInSpacing.s)
+                .padding(.bottom, LockInSpacing.xxxl)
             }
         }
         .navigationBarBackButtonHidden(true)
@@ -68,348 +123,221 @@ struct StartLockInView: View {
         }
     }
 
-    // MARK: - Background
-
-    private var backgroundLayer: some View {
-        ZStack {
-            Color.black
-            RadialGradient(
-                colors: [
-                    Color(red: 0.95, green: 0.18, blue: 0.30).opacity(0.30),
-                    Color.black.opacity(0)
-                ],
-                center: .top,
-                startRadius: 20,
-                endRadius: 480
-            )
-            RadialGradient(
-                colors: [
-                    Color(red: 0.30, green: 0.10, blue: 0.45).opacity(0.22),
-                    Color.black.opacity(0)
-                ],
-                center: .bottomLeading,
-                startRadius: 20,
-                endRadius: 500
-            )
-        }
-    }
-
-    // MARK: - Top bar
+    // MARK: - Top bar / header
 
     private var topBar: some View {
         HStack(spacing: 12) {
-            Button {
-                dismiss()
-            } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 14, weight: .bold))
-                    Text("Home")
-                        .font(.system(size: 15, weight: .semibold, design: .rounded))
-                }
-                .foregroundStyle(.white.opacity(0.85))
-                .padding(.vertical, 8)
-                .padding(.horizontal, 12)
-                .background(Capsule().fill(Color.white.opacity(0.08)))
-                .overlay(Capsule().strokeBorder(Color.white.opacity(0.10), lineWidth: 1))
-            }
-            .buttonStyle(.plain)
-
+            LockInBackPill(action: { dismiss() }, label: "Home")
             Spacer()
-
-            Text("START")
-                .font(.system(size: 12, weight: .heavy, design: .rounded))
-                .tracking(3)
-                .foregroundStyle(.white.opacity(0.55))
+            PillBadge(text: hasPendingLockIn ? "Running" : "Idle", style: hasPendingLockIn ? .accent : .neutral, systemImage: hasPendingLockIn ? "hourglass" : "moon.fill")
         }
     }
-
-    // MARK: - Header
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Lock In")
-                .font(.system(size: 32, weight: .black, design: .rounded))
-                .foregroundStyle(.white)
-
-            Text("Start a test run. LockIn will yell at you when your limit is up.")
-                .font(.system(size: 16, weight: .medium, design: .rounded))
-                .foregroundStyle(.white.opacity(0.65))
-                .fixedSize(horizontal: false, vertical: true)
+        VStack(alignment: .leading, spacing: 8) {
+            LockInType.screenTitle("Start LockIn")
+            LockInType.screenSubtitle("Test a session. The selected voice fires when time runs out.")
         }
     }
 
-    // MARK: - Permission denied warning
-
-    private var permissionDeniedCard: some View {
-        HStack(alignment: .top, spacing: 14) {
+    private var permissionWarning: some View {
+        HStack(alignment: .top, spacing: 12) {
             Image(systemName: "bell.slash.fill")
-                .font(.system(size: 20, weight: .bold))
-                .foregroundStyle(Color.orange)
-                .frame(width: 36, height: 36)
-                .background(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(Color.orange.opacity(0.18))
-                )
-
+                .font(.system(size: 16, weight: .bold))
+                .foregroundStyle(LockInColor.warning)
+                .padding(.top, 1)
             VStack(alignment: .leading, spacing: 4) {
                 Text("Notifications are disabled")
-                    .font(.system(size: 16, weight: .bold, design: .rounded))
-                    .foregroundStyle(.white)
-                Text("Notifications are disabled. LockIn alerts cannot fire until notifications are enabled in Settings.")
-                    .font(.system(size: 13, weight: .medium, design: .rounded))
-                    .foregroundStyle(.white.opacity(0.7))
+                    .font(.system(size: 14, weight: .bold, design: .rounded))
+                    .foregroundStyle(LockInColor.textPrimary)
+                Text("LockIn alerts cannot fire until notifications are enabled in Settings.")
+                    .font(.system(size: 12.5, weight: .medium, design: .rounded))
+                    .foregroundStyle(LockInColor.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
-
-                Text("Status: \(notificationManager.authorizationStatusDescription)")
-                    .font(.system(size: 11, weight: .heavy, design: .rounded))
-                    .tracking(1.2)
-                    .foregroundStyle(.white.opacity(0.45))
-                    .padding(.top, 4)
             }
-        }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(Color.orange.opacity(0.10))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .strokeBorder(Color.orange.opacity(0.35), lineWidth: 1)
-        )
-    }
-
-    // MARK: - Summary card
-
-    private var summaryCard: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack(spacing: 12) {
-                summaryIcon(systemName: "timer")
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("LIMIT")
-                        .font(.system(size: 11, weight: .heavy, design: .rounded))
-                        .tracking(1.8)
-                        .foregroundStyle(.white.opacity(0.55))
-                    Text(selectedLimit.longLabel)
-                        .font(.system(size: 18, weight: .bold, design: .rounded))
-                        .foregroundStyle(.white)
-                }
-                Spacer(minLength: 0)
-            }
-
-            Divider().background(Color.white.opacity(0.08))
-
-            HStack(alignment: .top, spacing: 12) {
-                summaryIcon(systemName: "megaphone.fill")
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("ALERT")
-                        .font(.system(size: 11, weight: .heavy, design: .rounded))
-                        .tracking(1.8)
-                        .foregroundStyle(.white.opacity(0.55))
-                    Text(selectedClip.voiceName)
-                        .font(.system(size: 18, weight: .bold, design: .rounded))
-                        .foregroundStyle(.white)
-                    Text("\u{201C}\(selectedClip.notificationText)\u{201D}")
-                        .font(.system(size: 14, weight: .semibold, design: .rounded))
-                        .foregroundStyle(.white.opacity(0.85))
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                Spacer(minLength: 0)
-            }
-
-            if hasPendingLockIn {
-                pendingBadge
-            }
-        }
-        .padding(18)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .fill(Color.white.opacity(0.06))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
-        )
-    }
-
-    private func summaryIcon(systemName: String) -> some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(
-                    LinearGradient(
-                        colors: [Color.red, Color.orange],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
-                .frame(width: 42, height: 42)
-            Image(systemName: systemName)
-                .font(.system(size: 18, weight: .bold))
-                .foregroundStyle(.white)
-        }
-    }
-
-    private var pendingBadge: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "hourglass")
-                .font(.system(size: 13, weight: .bold))
-            Text("LockIn alert is scheduled and pending.")
-                .font(.system(size: 13, weight: .semibold, design: .rounded))
-            Spacer(minLength: 0)
-        }
-        .foregroundStyle(.white.opacity(0.85))
-        .padding(.vertical, 10)
-        .padding(.horizontal, 12)
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color.orange.opacity(0.18))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(Color.orange.opacity(0.35), lineWidth: 1)
-        )
-    }
-
-    // MARK: - Action buttons
-
-    private var actionButtons: some View {
-        VStack(spacing: 12) {
-            Button {
-                Task { await handleStartTestLockIn() }
-            } label: {
-                HStack(spacing: 10) {
-                    Image(systemName: "bolt.fill")
-                        .font(.system(size: 16, weight: .bold))
-                    Text("Start Test LockIn")
-                        .font(.system(size: 17, weight: .bold, design: .rounded))
-                }
-                .foregroundStyle(.white)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 16)
-                .background(
-                    LinearGradient(
-                        colors: [
-                            Color(red: 0.95, green: 0.18, blue: 0.30),
-                            Color(red: 0.65, green: 0.08, blue: 0.20)
-                        ],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
-                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .strokeBorder(Color.white.opacity(0.18), lineWidth: 1)
-                )
-            }
-            .buttonStyle(PressableScaleStyle())
-
-            Button {
-                handleCancelLockIn()
-            } label: {
-                HStack(spacing: 10) {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 15, weight: .bold))
-                    Text("Cancel LockIn")
-                        .font(.system(size: 16, weight: .semibold, design: .rounded))
-                }
-                .foregroundStyle(.white.opacity(hasPendingLockIn ? 0.95 : 0.5))
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 14)
-                .background(
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .fill(Color.white.opacity(0.06))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
-                )
-            }
-            .buttonStyle(PressableScaleStyle())
-            .disabled(!hasPendingLockIn)
-        }
-    }
-
-    // MARK: - Debug section
-
-    private var debugSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("DEBUG")
-                .font(.system(size: 11, weight: .heavy, design: .rounded))
-                .tracking(2)
-                .foregroundStyle(.white.opacity(0.45))
-
-            Button {
-                Task { await handleSendDebugNotification() }
-            } label: {
-                HStack(spacing: 10) {
-                    Image(systemName: "ladybug.fill")
-                        .font(.system(size: 14, weight: .bold))
-                    Text("Send Debug Notification")
-                        .font(.system(size: 15, weight: .semibold, design: .rounded))
-                    Spacer(minLength: 0)
-                    Text("5s")
-                        .font(.system(size: 12, weight: .heavy, design: .rounded))
-                        .tracking(1)
-                        .foregroundStyle(.white.opacity(0.55))
-                }
-                .foregroundStyle(.white)
-                .padding(.vertical, 14)
-                .padding(.horizontal, 16)
-                .frame(maxWidth: .infinity)
-                .background(
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .fill(Color.white.opacity(0.05))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
-                )
-            }
-            .buttonStyle(PressableScaleStyle())
-
-            Text("Auth status: \(notificationManager.authorizationStatusDescription)")
-                .font(.system(size: 11, weight: .medium, design: .rounded))
-                .foregroundStyle(.white.opacity(0.4))
-        }
-    }
-
-    // MARK: - Status banner
-
-    private func statusBanner(_ message: String) -> some View {
-        HStack(alignment: .top, spacing: 12) {
-            Image(systemName: "sparkles")
-                .font(.system(size: 14, weight: .bold))
-                .foregroundStyle(Color.orange)
-            Text(message)
-                .font(.system(size: 14, weight: .medium, design: .rounded))
-                .foregroundStyle(.white.opacity(0.85))
-                .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Color.white.opacity(0.06))
+            RoundedRectangle(cornerRadius: LockInRadius.m, style: .continuous)
+                .fill(LockInColor.warning.opacity(0.10))
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(Color.orange.opacity(0.30), lineWidth: 1)
+            RoundedRectangle(cornerRadius: LockInRadius.m, style: .continuous)
+                .strokeBorder(LockInColor.warning.opacity(0.32), lineWidth: 1)
         )
-        .transition(.opacity)
+    }
+
+    // MARK: - Summary
+
+    private var summarySection: some View {
+        VStack(alignment: .leading, spacing: LockInSpacing.m) {
+            SectionHeader(title: "Session Plan")
+            LockInCard {
+                VStack(spacing: 0) {
+                    SetupSummaryRow(
+                        label: "Voice",
+                        value: "\(selectedCharacter.name) \u{00B7} \(selectedClip.sayingTitle)",
+                        systemImage: "waveform",
+                        accent: selectedCharacter.accent,
+                        trailingIcon: nil
+                    )
+                    .padding(.vertical, 10)
+
+                    Divider().overlay(LockInColor.border)
+
+                    SetupSummaryRow(
+                        label: "Apps",
+                        value: appsValueLabel,
+                        systemImage: "apps.iphone",
+                        accent: LockInColor.textSecondary,
+                        trailingIcon: nil
+                    )
+                    .padding(.vertical, 10)
+
+                    Divider().overlay(LockInColor.border)
+
+                    SetupSummaryRow(
+                        label: "Saying",
+                        value: "\u{201C}\(selectedClip.notificationText)\u{201D}",
+                        systemImage: "quote.bubble",
+                        accent: LockInColor.textSecondary,
+                        trailingIcon: nil
+                    )
+                    .padding(.vertical, 10)
+                }
+            }
+        }
+    }
+
+    // MARK: - Active session
+
+    private var activeSessionCard: some View {
+        VStack(alignment: .leading, spacing: LockInSpacing.m) {
+            SectionHeader(title: "Session Running")
+            LockInCard(emphasis: .accent) {
+                VStack(alignment: .leading, spacing: 12) {
+                    TimelineView(.periodic(from: .now, by: 1.0)) { context in
+                        let remaining = remainingSeconds(now: context.date)
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("FIRES IN")
+                                .font(.system(size: 10, weight: .heavy, design: .rounded))
+                                .tracking(1.4)
+                                .foregroundStyle(LockInColor.textTertiary)
+                            Text(formatCountdown(remaining))
+                                .font(.system(size: 44, weight: .black, design: .monospaced))
+                                .foregroundStyle(LockInColor.textPrimary)
+                                .contentTransition(.numericText())
+                        }
+                    }
+
+                    HStack(spacing: 6) {
+                        Image(systemName: "waveform")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundStyle(selectedCharacter.accent)
+                        Text("\(selectedCharacter.name) will fire: \u{201C}\(selectedClip.notificationText)\u{201D}")
+                            .font(.system(size: 13, weight: .medium, design: .rounded))
+                            .foregroundStyle(LockInColor.textSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+        }
+    }
+
+    private var cancelButton: some View {
+        PrimaryButton(
+            title: "Cancel Session",
+            systemImage: "xmark.circle.fill",
+            style: .secondary
+        ) {
+            handleCancel()
+        }
+    }
+
+    // MARK: - Duration / Start
+
+    private var durationSection: some View {
+        VStack(alignment: .leading, spacing: LockInSpacing.m) {
+            SectionHeader(title: "Test Duration")
+            LazyVGrid(
+                columns: [
+                    GridItem(.flexible(), spacing: 10),
+                    GridItem(.flexible(), spacing: 10)
+                ],
+                spacing: 10
+            ) {
+                ForEach(durationOptions, id: \.self) { option in
+                    Button {
+                        selectedDurationOption = option
+                    } label: {
+                        DurationCell(
+                            label: option.label(savedLimitMinutes: savedLimitMinutes),
+                            isSelected: option == selectedDurationOption
+                        )
+                    }
+                    .buttonStyle(PressableScaleStyle())
+                }
+            }
+        }
+    }
+
+    private var startButton: some View {
+        PrimaryButton(
+            title: "Start Session",
+            systemImage: "bolt.fill",
+            style: .primary
+        ) {
+            Task { await handleStart() }
+        }
+    }
+
+    // MARK: - Debug
+
+    private var debugDisclosure: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Button {
+                withAnimation(.easeOut(duration: 0.18)) {
+                    showDebugSection.toggle()
+                }
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 10, weight: .bold))
+                        .rotationEffect(.degrees(showDebugSection ? 90 : 0))
+                    Text("Developer Debug")
+                        .font(.system(size: 11, weight: .heavy, design: .rounded))
+                        .tracking(1.8)
+                    Spacer()
+                    Text("Auth: \(notificationManager.authorizationStatusDescription)")
+                        .font(.system(size: 10, weight: .heavy, design: .rounded))
+                        .tracking(0.8)
+                }
+                .foregroundStyle(LockInColor.textTertiary)
+            }
+            .buttonStyle(.plain)
+
+            if showDebugSection {
+                PrimaryButton(
+                    title: "Send Debug Notification (5s)",
+                    systemImage: "ladybug.fill",
+                    style: .secondary
+                ) {
+                    Task { await handleSendDebug() }
+                }
+            }
+        }
     }
 
     // MARK: - Actions
 
-    private func handleStartTestLockIn() async {
+    private func handleStart() async {
         switch notificationManager.authState {
         case .unknown:
             let granted = await notificationManager.requestNotificationPermission()
             guard granted else {
-                showStatus("Enable notifications in Settings to start a test LockIn.")
+                showStatus("Enable notifications in Settings to start a session.")
                 return
             }
         case .denied:
@@ -420,29 +348,30 @@ struct StartLockInView: View {
         }
 
         let clip = selectedClip
-        let limit = selectedLimit
-        let seconds = TimeInterval(limit.minutes * 60)
+        let seconds = selectedDurationOption.seconds(savedLimitMinutes: savedLimitMinutes)
         let scheduled = await notificationManager.scheduleLockInAlert(clip: clip, after: seconds)
+        if scheduled {
+            scheduledFireEpoch = Date().addingTimeInterval(seconds).timeIntervalSince1970
+        }
         await refreshPending()
 
         if scheduled {
-            showStatus(
-                "Locked in. \(limit.longLabel) on the clock. \(clip.voiceName) will fire: \u{201C}\(clip.notificationText)\u{201D}"
-            )
+            showStatus("Session started. \(selectedDurationOption.label(savedLimitMinutes: savedLimitMinutes)).")
         } else {
-            showStatus("Could not schedule LockIn alert. Check notification permissions.")
+            showStatus("Could not start session. Check notification permissions.")
         }
     }
 
-    private func handleCancelLockIn() {
+    private func handleCancel() {
         notificationManager.cancelLockInAlert()
+        scheduledFireEpoch = 0
         Task {
             await refreshPending()
-            showStatus("Cancelled. No LockIn alert scheduled.")
+            showStatus("Session cancelled.")
         }
     }
 
-    private func handleSendDebugNotification() async {
+    private func handleSendDebug() async {
         switch notificationManager.authState {
         case .unknown:
             let granted = await notificationManager.requestNotificationPermission()
@@ -458,32 +387,66 @@ struct StartLockInView: View {
         }
 
         let scheduled = await notificationManager.sendImmediateDebugNotification()
-        await refreshPending()
         if scheduled {
             showStatus("Debug notification scheduled for 5 seconds from now.")
         } else {
-            showStatus("Could not schedule debug notification. Check auth status.")
+            showStatus("Could not schedule debug notification.")
         }
     }
 
     private func refreshPending() async {
-        let pending = await UNUserNotificationCenter.current().pendingNotificationRequests()
-        let hasIt = pending.contains { $0.identifier == NotificationManager.lockInRequestIdentifier }
+        let hasIt = await notificationManager.hasPendingLockInAlert()
         await MainActor.run { hasPendingLockIn = hasIt }
+        if !hasIt {
+            scheduledFireEpoch = 0
+        }
+    }
+
+    private func remainingSeconds(now: Date) -> Int {
+        guard let fire = scheduledFireDate else { return 0 }
+        return max(0, Int(fire.timeIntervalSince(now).rounded()))
+    }
+
+    private func formatCountdown(_ seconds: Int) -> String {
+        let m = seconds / 60
+        let s = seconds % 60
+        return String(format: "%02d:%02d", m, s)
     }
 
     private func showStatus(_ message: String) {
-        withAnimation(.easeOut(duration: 0.2)) {
-            statusMessage = message
-        }
+        withAnimation(.easeOut(duration: 0.2)) { statusMessage = message }
         Task {
-            try? await Task.sleep(nanoseconds: 6_000_000_000)
+            try? await Task.sleep(nanoseconds: 5_000_000_000)
             await MainActor.run {
-                withAnimation(.easeOut(duration: 0.2)) {
-                    statusMessage = nil
-                }
+                withAnimation(.easeOut(duration: 0.2)) { statusMessage = nil }
             }
         }
+    }
+}
+
+// MARK: - Duration cell
+
+private struct DurationCell: View {
+    let label: String
+    let isSelected: Bool
+
+    var body: some View {
+        Text(label)
+            .font(.system(size: 15, weight: .bold, design: .rounded))
+            .foregroundStyle(isSelected ? .white : LockInColor.textPrimary)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 14)
+            .background(
+                RoundedRectangle(cornerRadius: LockInRadius.m, style: .continuous)
+                    .fill(isSelected ? LockInColor.accent : LockInColor.surface)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: LockInRadius.m, style: .continuous)
+                    .strokeBorder(
+                        isSelected ? LockInColor.accent.opacity(0.75) : LockInColor.border,
+                        lineWidth: 1
+                    )
+            )
     }
 }
 

@@ -2,8 +2,6 @@
 //  NotificationManager.swift
 //  LockIn
 //
-//  Created by Catherine Fratila on 5/20/26.
-//
 
 import Combine
 import Foundation
@@ -23,7 +21,6 @@ final class NotificationManager: NSObject, ObservableObject {
     static let debugRequestIdentifier = "lockin-debug-notification"
 
     @Published private(set) var authState: AuthState = .unknown
-    /// Raw authorization status as a human-readable string, exposed for the UI.
     /// One of: notDetermined, denied, authorized, provisional, ephemeral, unknown.
     @Published private(set) var authorizationStatusDescription: String = "unknown"
 
@@ -79,9 +76,6 @@ final class NotificationManager: NSObject, ObservableObject {
 
     // MARK: - Scheduling
 
-    /// Schedules a debug notification 5 seconds from now. Default sound only,
-    /// no dependency on selected voice clips or saved alert state.
-    /// - Returns: `true` if the request was accepted by the system.
     @discardableResult
     func sendImmediateDebugNotification() async -> Bool {
         await refreshAuthorizationStatus()
@@ -116,11 +110,8 @@ final class NotificationManager: NSObject, ObservableObject {
         }
     }
 
-    /// Schedules the real LockIn alert. Replaces any previously pending LockIn
-    /// alert (same identifier). Does NOT cancel itself — only an explicit
-    /// `cancelLockInAlert()` call (or a fresh schedule call) removes it.
     @discardableResult
-    func scheduleLockInAlert(clip: LockInVoiceClip, after seconds: TimeInterval) async -> Bool {
+    func scheduleLockInAlert(clip: VoiceClip, after seconds: TimeInterval) async -> Bool {
         await refreshAuthorizationStatus()
         guard authState == .authorized else {
             print("[LockIn] scheduleLockInAlert skipped — auth=\(authorizationStatusDescription)")
@@ -154,7 +145,6 @@ final class NotificationManager: NSObject, ObservableObject {
         }
     }
 
-    /// Cancels only the Start LockIn alert. Does not touch debug or test alerts.
     func cancelLockInAlert() {
         UNUserNotificationCenter.current()
             .removePendingNotificationRequests(withIdentifiers: [Self.lockInRequestIdentifier])
@@ -162,14 +152,8 @@ final class NotificationManager: NSObject, ObservableObject {
         Task { await printPendingNotifications() }
     }
 
-    /// Compatibility wrapper used by AlertSetupView for the "Send Test Alert" button.
-    /// Routes through the same notification center as everything else.
-    func sendTestNotification(clip: LockInVoiceClip, after seconds: TimeInterval = 3) {
-        Task { await sendTestNotificationAsync(clip: clip, after: seconds) }
-    }
-
     @discardableResult
-    func sendTestNotificationAsync(clip: LockInVoiceClip, after seconds: TimeInterval = 3) async -> Bool {
+    func sendTestNotification(clip: VoiceClip, after seconds: TimeInterval = 3) async -> Bool {
         await refreshAuthorizationStatus()
         guard authState == .authorized else {
             print("[LockIn] sendTestNotification skipped — auth=\(authorizationStatusDescription)")
@@ -216,6 +200,11 @@ final class NotificationManager: NSObject, ObservableObject {
             }
             print("[LockIn]  • id=\(request.identifier) title=\"\(request.content.title)\" body=\"\(request.content.body)\" \(triggerDesc)")
         }
+    }
+
+    func hasPendingLockInAlert() async -> Bool {
+        let pending = await UNUserNotificationCenter.current().pendingNotificationRequests()
+        return pending.contains { $0.identifier == Self.lockInRequestIdentifier }
     }
 
     // MARK: - Sound resolution

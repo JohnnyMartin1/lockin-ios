@@ -2,8 +2,6 @@
 //  LimitSetupView.swift
 //  LockIn
 //
-//  Created by Catherine Fratila on 5/20/26.
-//
 
 import SwiftUI
 
@@ -11,7 +9,6 @@ struct LimitSetupView: View {
     @Environment(\.dismiss) private var dismiss
 
     @AppStorage(SelectedLimitKeys.minutes) private var savedLimitMinutes: Int = LockInLimitOption.defaultMinutes
-    @AppStorage(SelectedAlertKeys.voiceName) private var savedVoiceName: String = ""
 
     @State private var selectedMinutes: Int
     @State private var statusMessage: String?
@@ -34,120 +31,53 @@ struct LimitSetupView: View {
 
     var body: some View {
         ZStack {
-            backgroundLayer.ignoresSafeArea()
+            LockInBackground()
 
             ScrollView {
-                VStack(alignment: .leading, spacing: 28) {
+                VStack(alignment: .leading, spacing: LockInSpacing.xl) {
                     topBar
                     header
                     limitGrid
-                    summaryCard
+                    previewCard
                     saveButton
                     if let statusMessage {
-                        statusBanner(statusMessage)
+                        LockInStatusBanner(message: statusMessage)
                     }
                 }
-                .padding(.horizontal, 24)
-                .padding(.top, 8)
-                .padding(.bottom, 48)
+                .padding(.horizontal, LockInSpacing.xl)
+                .padding(.top, LockInSpacing.s)
+                .padding(.bottom, LockInSpacing.xxxl)
             }
         }
         .navigationBarBackButtonHidden(true)
         .toolbar(.hidden, for: .navigationBar)
     }
 
-    // MARK: - Background
-
-    private var backgroundLayer: some View {
-        ZStack {
-            Color.black
-            RadialGradient(
-                colors: [
-                    Color(red: 0.95, green: 0.18, blue: 0.30).opacity(0.28),
-                    Color.black.opacity(0)
-                ],
-                center: .topLeading,
-                startRadius: 20,
-                endRadius: 460
-            )
-            RadialGradient(
-                colors: [
-                    Color(red: 0.30, green: 0.10, blue: 0.45).opacity(0.22),
-                    Color.black.opacity(0)
-                ],
-                center: .bottomTrailing,
-                startRadius: 20,
-                endRadius: 500
-            )
-        }
-    }
-
-    // MARK: - Top bar
-
     private var topBar: some View {
         HStack(spacing: 12) {
-            Button {
-                dismiss()
-            } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 14, weight: .bold))
-                    Text("Home")
-                        .font(.system(size: 15, weight: .semibold, design: .rounded))
-                }
-                .foregroundStyle(.white.opacity(0.85))
-                .padding(.vertical, 8)
-                .padding(.horizontal, 12)
-                .background(
-                    Capsule().fill(Color.white.opacity(0.08))
-                )
-                .overlay(
-                    Capsule().strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
-                )
-            }
-            .buttonStyle(.plain)
-
+            LockInBackPill(action: { dismiss() }, label: "Home")
             Spacer()
-
-            Text("LIMIT")
-                .font(.system(size: 12, weight: .heavy, design: .rounded))
-                .tracking(3)
-                .foregroundStyle(.white.opacity(0.55))
+            PillBadge(text: "Limit", style: .neutral, systemImage: "timer")
         }
     }
-
-    // MARK: - Header
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Set Your Doomscroll Limit")
-                .font(.system(size: 32, weight: .black, design: .rounded))
-                .foregroundStyle(.white)
-                .fixedSize(horizontal: false, vertical: true)
-
-            Text("Pick how long you get before LockIn yells at you.")
-                .font(.system(size: 16, weight: .medium, design: .rounded))
-                .foregroundStyle(.white.opacity(0.65))
-                .fixedSize(horizontal: false, vertical: true)
+        VStack(alignment: .leading, spacing: 8) {
+            LockInType.screenTitle("Your Limit")
+            LockInType.screenSubtitle("How long you get before LockIn fires.")
         }
     }
 
-    // MARK: - Limit grid
-
     private var limitGrid: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("CHOOSE A LIMIT")
-                .font(.system(size: 12, weight: .heavy, design: .rounded))
-                .tracking(2.5)
-                .foregroundStyle(.white.opacity(0.55))
-
+        VStack(alignment: .leading, spacing: LockInSpacing.m) {
+            SectionHeader(title: "Choose a Limit")
             LazyVGrid(
                 columns: [
-                    GridItem(.flexible(), spacing: 12),
-                    GridItem(.flexible(), spacing: 12),
-                    GridItem(.flexible(), spacing: 12)
+                    GridItem(.flexible(), spacing: LockInSpacing.m),
+                    GridItem(.flexible(), spacing: LockInSpacing.m),
+                    GridItem(.flexible(), spacing: LockInSpacing.m)
                 ],
-                spacing: 12
+                spacing: LockInSpacing.m
             ) {
                 ForEach(options) { option in
                     Button {
@@ -164,221 +94,84 @@ struct LimitSetupView: View {
         }
     }
 
-    // MARK: - Summary card
-
-    private var summaryCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("PREVIEW")
-                .font(.system(size: 12, weight: .heavy, design: .rounded))
-                .tracking(2.5)
-                .foregroundStyle(.white.opacity(0.55))
-
-            VStack(alignment: .leading, spacing: 14) {
-                HStack(spacing: 12) {
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .fill(
-                                LinearGradient(
-                                    colors: [Color.red, Color.orange],
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                )
-                            )
-                            .frame(width: 46, height: 46)
-                        Image(systemName: "timer")
-                            .font(.system(size: 20, weight: .bold))
-                            .foregroundStyle(.white)
+    private var previewCard: some View {
+        VStack(alignment: .leading, spacing: LockInSpacing.m) {
+            SectionHeader(title: "Preview")
+            LockInCard {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Text(selectedOption.longLabel)
+                            .font(.system(size: 22, weight: .heavy, design: .rounded))
+                            .foregroundStyle(LockInColor.textPrimary)
+                        Text(selectedOption.caption)
+                            .font(.system(size: 13, weight: .medium, design: .rounded))
+                            .foregroundStyle(LockInColor.textTertiary)
                     }
-
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Current limit: \(selectedOption.longLabel)")
-                            .font(.system(size: 18, weight: .bold, design: .rounded))
-                            .foregroundStyle(.white)
-                            .fixedSize(horizontal: false, vertical: true)
-                        Text(selectedOption.caption.uppercased())
-                            .font(.system(size: 11, weight: .heavy, design: .rounded))
-                            .tracking(1.8)
-                            .foregroundStyle(.white.opacity(0.55))
-                    }
-
-                    Spacer(minLength: 0)
-                }
-
-                Divider()
-                    .background(Color.white.opacity(0.08))
-
-                HStack(alignment: .top, spacing: 12) {
-                    Image(systemName: "megaphone.fill")
-                        .font(.system(size: 14, weight: .bold))
-                        .foregroundStyle(Color.orange)
-                        .frame(width: 22)
-                    Text(alertCopy)
-                        .font(.system(size: 14, weight: .medium, design: .rounded))
-                        .foregroundStyle(.white.opacity(0.80))
+                    Text("LockIn will fire after this much time in your selected apps.")
+                        .font(.system(size: 13, weight: .medium, design: .rounded))
+                        .foregroundStyle(LockInColor.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
-                    Spacer(minLength: 0)
                 }
             }
-            .padding(18)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .fill(Color.white.opacity(0.06))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
-            )
         }
     }
-
-    private var alertCopy: String {
-        if savedVoiceName.isEmpty {
-            return "When you hit this, your selected LockIn alert will fire."
-        }
-        return "When you hit this, \(savedVoiceName) will fire your LockIn alert."
-    }
-
-    // MARK: - Save button
 
     private var saveButton: some View {
-        Button {
+        PrimaryButton(
+            title: hasUnsavedChanges ? "Save Limit" : "Limit saved",
+            systemImage: hasUnsavedChanges ? "tray.and.arrow.down.fill" : "checkmark.seal.fill",
+            style: .primary,
+            isEnabled: hasUnsavedChanges
+        ) {
             saveSelection()
-        } label: {
-            HStack(spacing: 10) {
-                Image(systemName: hasUnsavedChanges ? "tray.and.arrow.down.fill" : "checkmark.seal.fill")
-                    .font(.system(size: 16, weight: .bold))
-                Text(hasUnsavedChanges ? "Save Limit" : "Limit saved.")
-                    .font(.system(size: 17, weight: .bold, design: .rounded))
-            }
-            .foregroundStyle(.white)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 16)
-            .background(buttonBackground)
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .strokeBorder(Color.white.opacity(0.18), lineWidth: 1)
-            )
-        }
-        .buttonStyle(PressableScaleStyle())
-        .disabled(!hasUnsavedChanges)
-    }
-
-    @ViewBuilder
-    private var buttonBackground: some View {
-        if hasUnsavedChanges {
-            LinearGradient(
-                colors: [
-                    Color(red: 0.95, green: 0.18, blue: 0.30),
-                    Color(red: 0.65, green: 0.08, blue: 0.20)
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-        } else {
-            Color.white.opacity(0.08)
         }
     }
-
-    // MARK: - Status banner
-
-    private func statusBanner(_ message: String) -> some View {
-        HStack(alignment: .top, spacing: 12) {
-            Image(systemName: "checkmark.seal.fill")
-                .font(.system(size: 14, weight: .bold))
-                .foregroundStyle(Color.orange)
-            Text(message)
-                .font(.system(size: 14, weight: .medium, design: .rounded))
-                .foregroundStyle(.white.opacity(0.85))
-                .fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: 0)
-        }
-        .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Color.white.opacity(0.06))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(Color.orange.opacity(0.30), lineWidth: 1)
-        )
-        .transition(.opacity)
-    }
-
-    // MARK: - Actions
 
     private func saveSelection() {
         savedLimitMinutes = selectedMinutes
-        showStatus("Limit saved. \(selectedOption.longLabel) before LockIn yells at you.")
+        showStatus("Limit saved. \(selectedOption.longLabel).")
     }
 
     private func showStatus(_ message: String) {
-        withAnimation(.easeOut(duration: 0.2)) {
-            statusMessage = message
-        }
+        withAnimation(.easeOut(duration: 0.2)) { statusMessage = message }
         Task {
             try? await Task.sleep(nanoseconds: 4_000_000_000)
             await MainActor.run {
-                withAnimation(.easeOut(duration: 0.2)) {
-                    statusMessage = nil
-                }
+                withAnimation(.easeOut(duration: 0.2)) { statusMessage = nil }
             }
         }
     }
 }
-
-// MARK: - Limit option cell
 
 private struct LimitOptionCell: View {
     let option: LockInLimitOption
     let isSelected: Bool
 
     var body: some View {
-        VStack(spacing: 6) {
+        VStack(spacing: 4) {
             Text(numberText)
                 .font(.system(size: 26, weight: .black, design: .rounded))
-                .foregroundStyle(.white)
+                .foregroundStyle(LockInColor.textPrimary)
                 .lineLimit(1)
                 .minimumScaleFactor(0.6)
 
             Text(unitText)
-                .font(.system(size: 11, weight: .heavy, design: .rounded))
-                .tracking(1.5)
-                .foregroundStyle(unitColor)
+                .font(.system(size: 10, weight: .heavy, design: .rounded))
+                .tracking(1.4)
+                .foregroundStyle(isSelected ? LockInColor.accent : LockInColor.textTertiary)
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 18)
+        .padding(.vertical, 16)
         .background(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(cardFill)
+            RoundedRectangle(cornerRadius: LockInRadius.m, style: .continuous)
+                .fill(isSelected ? LockInColor.surfaceElevated : LockInColor.surface)
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .strokeBorder(borderColor, lineWidth: isSelected ? 1.5 : 1)
-        )
-        .overlay(alignment: .topTrailing) {
-            if isSelected {
-                Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: 16, weight: .bold))
-                    .foregroundStyle(
-                        LinearGradient(
-                            colors: [Color.red, Color.orange],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-                    .padding(8)
-            }
-        }
-        .shadow(
-            color: isSelected
-                ? Color(red: 0.95, green: 0.18, blue: 0.30).opacity(0.35)
-                : Color.clear,
-            radius: 14,
-            x: 0,
-            y: 6
+            RoundedRectangle(cornerRadius: LockInRadius.m, style: .continuous)
+                .strokeBorder(
+                    isSelected ? LockInColor.accent.opacity(0.55) : LockInColor.border,
+                    lineWidth: isSelected ? 1.2 : 1
+                )
         )
     }
 
@@ -390,23 +183,7 @@ private struct LimitOptionCell: View {
         if option.minutes >= 60 {
             return option.minutes == 60 ? "HOUR" : "HOURS"
         }
-        return option.minutes == 1 ? "MIN" : "MIN"
-    }
-
-    private var cardFill: Color {
-        isSelected ? Color.white.opacity(0.10) : Color.white.opacity(0.05)
-    }
-
-    private var borderColor: Color {
-        isSelected
-            ? Color(red: 0.95, green: 0.18, blue: 0.30).opacity(0.85)
-            : Color.white.opacity(0.08)
-    }
-
-    private var unitColor: Color {
-        isSelected
-            ? Color(red: 1.0, green: 0.55, blue: 0.40)
-            : .white.opacity(0.55)
+        return "MIN"
     }
 }
 

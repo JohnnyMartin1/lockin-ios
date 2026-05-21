@@ -2,41 +2,76 @@
 //  AppSelectionView.swift
 //  LockIn
 //
+//  Phase A: Real Screen Time selection (FamilyActivityPicker) is the primary
+//  path when authorized. Mock "Preview Mode" remains as a fallback for
+//  development, simulator runs, and demos. No DeviceActivity monitoring yet.
+//
 
+import FamilyControls
 import SwiftUI
 
 struct AppSelectionView: View {
     @Environment(\.dismiss) private var dismiss
 
-    @AppStorage(SelectedAppsKeys.ids) private var savedAppIDsRaw: String = ""
-    @AppStorage(LockInSetupKeys.appGroupID) private var savedAppGroupID: String = ""
+    // Real Screen Time
+    @StateObject private var screenTime  = ScreenTimeManager.shared
+    @StateObject private var familyStore = FamilySelectionStore.shared
 
-    @State private var selectedIDs: Set<String>
+    // Preview Mode (mock)
+    @AppStorage(SelectedAppsKeys.ids)       private var savedAppIDsRaw: String   = ""
+    @AppStorage(LockInSetupKeys.appGroupID) private var savedAppGroupID: String  = ""
+
+    @State private var selectedMockIDs: Set<String>
     @State private var statusMessage: String?
+    @State private var isPickerPresented = false
+    @State private var isRequestingAuth = false
+    @State private var selectionBeforePicker: FamilyActivitySelection?
 
-    private let apps = MockApp.bundled
+    private let apps   = MockApp.bundled
     private let groups = LockInAppGroup.presets
 
     init() {
         let raw = UserDefaults.standard.string(forKey: SelectedAppsKeys.ids) ?? ""
-        _selectedIDs = State(initialValue: Set(SelectedAppsStorage.decode(raw)))
+        _selectedMockIDs = State(initialValue: Set(SelectedAppsStorage.decode(raw)))
     }
 
-    private var savedIDs: Set<String> { Set(SelectedAppsStorage.decode(savedAppIDsRaw)) }
-    private var hasUnsavedChanges: Bool {
-        savedIDs != selectedIDs
+    // MARK: - Derived
+
+    private var isApproved: Bool { screenTime.authState.isApproved }
+
+    private var savedMockIDs: Set<String> { Set(SelectedAppsStorage.decode(savedAppIDsRaw)) }
+
+    private var currentGroupMatch: LockInAppGroup? {
+        LockInAppGroup.match(forSelectedAppIDs: Array(selectedMockIDs))
+    }
+
+    private var hasUnsavedMockChanges: Bool {
+        savedMockIDs != selectedMockIDs
             || savedAppGroupID != (currentGroupMatch?.id ?? "")
     }
 
-    /// The preset group that matches the current selection exactly, if any.
-    private var currentGroupMatch: LockInAppGroup? {
-        LockInAppGroup.match(forSelectedAppIDs: Array(selectedIDs))
+    private var headerTitle: String {
+        isApproved ? "Apps to Watch" : "Enable App Selection"
     }
 
-    private var selectedCountLabel: String {
-        let n = selectedIDs.count
-        return n == 1 ? "1 selected" : "\(n) selected"
+    private var headerSubtitle: String {
+        if isApproved {
+            return "Choose the apps LockIn should watch."
+        }
+        return "LockIn needs Screen Time access so you can choose the apps you want to manage."
     }
+
+    private var topBarPillText: String {
+        if isApproved && familyStore.hasAnySelection {
+            return "\(familyStore.totalCount) picked"
+        }
+        if !selectedMockIDs.isEmpty {
+            return "Preview \u{00B7} \(selectedMockIDs.count)"
+        }
+        return "Nothing picked"
+    }
+
+    // MARK: - Body
 
     var body: some View {
         ZStack {
@@ -46,9 +81,12 @@ struct AppSelectionView: View {
                 VStack(alignment: .leading, spacing: LockInSpacing.xl) {
                     topBar
                     header
-                    groupsSection
-                    appsSection
-                    saveButton
+                    if isApproved {
+                        realSelectionSection
+                    } else {
+                        enableScreenTimeSection
+                    }
+                    previewModeSection
                     screenTimeNote
                     if let statusMessage {
                         LockInStatusBanner(message: statusMessage)
@@ -61,6 +99,19 @@ struct AppSelectionView: View {
         }
         .navigationBarBackButtonHidden(true)
         .toolbar(.hidden, for: .navigationBar)
+        .familyActivityPicker(isPresented: $isPickerPresented, selection: $familyStore.selection)
+        .onChange(of: isPickerPresented) { _, newValue in
+            if !newValue, let snapshot = selectionBeforePicker {
+                if snapshot != familyStore.selection {
+                    showStatus("Selection saved.")
+                }
+                selectionBeforePicker = nil
+            }
+        }
+        .onAppear {
+            // Re-read in case the user just toggled Screen Time in Settings.
+            screenTime.refreshAuthorizationStatus()
+        }
     }
 
     // MARK: - Top bar / header
@@ -69,22 +120,168 @@ struct AppSelectionView: View {
         HStack(spacing: 12) {
             LockInBackPill(action: { dismiss() }, label: "Home")
             Spacer()
-            PillBadge(text: selectedCountLabel, style: .neutral, systemImage: "checkmark.seal.fill")
+            PillBadge(
+                text: topBarPillText,
+                style: isApproved && familyStore.hasAnySelection ? .accent : .neutral,
+                systemImage: "checkmark.seal.fill"
+            )
         }
     }
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 8) {
-            LockInType.screenTitle("Apps to Watch")
-            LockInType.screenSubtitle("Pick the apps that usually steal your time.")
+            LockInType.screenTitle(headerTitle)
+            LockInType.screenSubtitle(headerSubtitle)
         }
     }
 
-    // MARK: - Groups
+    // MARK: - Enable Screen Time (not approved)
 
-    private var groupsSection: some View {
+    private var enableScreenTimeSection: some View {
+        LockInCard {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(spacing: 12) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .fill(LockInColor.accent.opacity(0.18))
+                            .frame(width: 40, height: 40)
+                        Image(systemName: "hand.raised.fill")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(LockInColor.accent)
+                    }
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Screen Time Access")
+                            .font(.system(size: 15, weight: .bold, design: .rounded))
+                            .foregroundStyle(LockInColor.textPrimary)
+                        Text(authHint)
+                            .font(.system(size: 12.5, weight: .medium, design: .rounded))
+                            .foregroundStyle(LockInColor.textSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer(minLength: 0)
+                }
+
+                PrimaryButton(
+                    title: isRequestingAuth ? "Requesting\u{2026}" : "Enable Screen Time Access",
+                    systemImage: "checkmark.shield.fill",
+                    style: .primary,
+                    isEnabled: !isRequestingAuth
+                ) {
+                    Task { await requestScreenTime() }
+                }
+
+                if case .error(let msg) = screenTime.authState {
+                    Text("Couldn't enable: \(msg)")
+                        .font(.system(size: 11.5, weight: .medium, design: .rounded))
+                        .foregroundStyle(LockInColor.warning)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else if screenTime.authState == .denied {
+                    Text("Access was denied. You can still use Preview Mode below, or re-enable Screen Time for LockIn in iOS Settings.")
+                        .font(.system(size: 11.5, weight: .medium, design: .rounded))
+                        .foregroundStyle(LockInColor.warning)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+    }
+
+    private var authHint: String {
+        switch screenTime.authState {
+        case .notDetermined: return "Tap to allow LockIn to read your Screen Time usage."
+        case .approved:      return "Granted."
+        case .denied:        return "Denied. Re-enable in iOS Settings."
+        case .error:         return "Try again or use Preview Mode below."
+        }
+    }
+
+    // MARK: - Real selection (approved)
+
+    private var realSelectionSection: some View {
         VStack(alignment: .leading, spacing: LockInSpacing.m) {
-            SectionHeader(title: "Quick Picks")
+            SectionHeader(title: "Screen Time Selection", trailing: "Recommended")
+            LockInCard {
+                VStack(alignment: .leading, spacing: 14) {
+                    HStack(spacing: 12) {
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .fill(LockInColor.accent.opacity(0.18))
+                                .frame(width: 40, height: 40)
+                            Image(systemName: "checkmark.seal.fill")
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundStyle(LockInColor.accent)
+                        }
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(familyStore.hasAnySelection ? "Apps selected" : "Nothing selected yet")
+                                .font(.system(size: 15, weight: .bold, design: .rounded))
+                                .foregroundStyle(LockInColor.textPrimary)
+                            Text(familyStore.summary)
+                                .font(.system(size: 12.5, weight: .medium, design: .rounded))
+                                .foregroundStyle(LockInColor.textSecondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        Spacer(minLength: 0)
+                    }
+
+                    Text("Apple keeps your selection private. LockIn sees secure tokens, not specific app names.")
+                        .font(.system(size: 11.5, weight: .medium, design: .rounded))
+                        .foregroundStyle(LockInColor.textTertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    HStack(spacing: 10) {
+                        PrimaryButton(
+                            title: familyStore.hasAnySelection ? "Edit Selection" : "Choose Apps",
+                            systemImage: "apps.iphone",
+                            style: .primary
+                        ) {
+                            presentPicker()
+                        }
+                        if familyStore.hasAnySelection {
+                            PrimaryButton(
+                                title: "Clear",
+                                systemImage: "xmark.circle",
+                                style: .secondary
+                            ) {
+                                familyStore.clear()
+                                showStatus("Selection cleared.")
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: - Preview Mode (mock)
+
+    private var previewModeSection: some View {
+        VStack(alignment: .leading, spacing: LockInSpacing.m) {
+            SectionHeader(
+                title: "Preview Mode",
+                trailing: isApproved ? "Fallback" : "Use For Now"
+            )
+
+            if isApproved {
+                Text("Preview apps are for development and demos. Once you've chosen real apps above, you can ignore this section.")
+                    .font(.system(size: 12, weight: .medium, design: .rounded))
+                    .foregroundStyle(LockInColor.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            VStack(alignment: .leading, spacing: LockInSpacing.l) {
+                quickPicksList
+                appsList
+                saveMockButton
+            }
+            .opacity(isApproved ? 0.78 : 1.0)
+        }
+    }
+
+    private var quickPicksList: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("QUICK PICKS")
+                .font(.system(size: 10, weight: .heavy, design: .rounded))
+                .tracking(1.6)
+                .foregroundStyle(LockInColor.textTertiary)
             VStack(spacing: 8) {
                 ForEach(groups) { group in
                     Button {
@@ -101,17 +298,18 @@ struct AppSelectionView: View {
         }
     }
 
-    // MARK: - Apps list
-
-    private var appsSection: some View {
-        VStack(alignment: .leading, spacing: LockInSpacing.m) {
-            SectionHeader(title: "Individual Apps")
+    private var appsList: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("PREVIEW APPS")
+                .font(.system(size: 10, weight: .heavy, design: .rounded))
+                .tracking(1.6)
+                .foregroundStyle(LockInColor.textTertiary)
             VStack(spacing: 8) {
                 ForEach(apps) { app in
                     Button {
-                        toggle(app.id)
+                        toggleMock(app.id)
                     } label: {
-                        MockAppRow(app: app, isSelected: selectedIDs.contains(app.id))
+                        MockAppRow(app: app, isSelected: selectedMockIDs.contains(app.id))
                     }
                     .buttonStyle(PressableScaleStyle())
                 }
@@ -119,23 +317,21 @@ struct AppSelectionView: View {
         }
     }
 
-    // MARK: - Save
-
-    private var saveButton: some View {
+    private var saveMockButton: some View {
         PrimaryButton(
-            title: hasUnsavedChanges ? "Save Apps" : "Apps saved",
-            systemImage: hasUnsavedChanges ? "tray.and.arrow.down.fill" : "checkmark.seal.fill",
-            style: .primary,
-            isEnabled: hasUnsavedChanges
+            title: hasUnsavedMockChanges ? "Save Preview Apps" : "Preview Apps Saved",
+            systemImage: hasUnsavedMockChanges ? "tray.and.arrow.down.fill" : "checkmark.seal.fill",
+            style: .secondary,
+            isEnabled: hasUnsavedMockChanges
         ) {
-            saveSelection()
+            saveMockSelection()
         }
     }
 
     // MARK: - Footnote
 
     private var screenTimeNote: some View {
-        Text("Automatic app monitoring will connect to Apple Screen Time permissions later.")
+        Text("Real app monitoring connects after the Device Activity setup ships in a later update.")
             .font(.system(size: 12, weight: .medium, design: .rounded))
             .foregroundStyle(LockInColor.textTertiary)
             .multilineTextAlignment(.center)
@@ -145,34 +341,50 @@ struct AppSelectionView: View {
 
     // MARK: - Actions
 
-    private func toggle(_ id: String) {
-        if selectedIDs.contains(id) {
-            selectedIDs.remove(id)
+    private func presentPicker() {
+        selectionBeforePicker = familyStore.selection
+        isPickerPresented = true
+    }
+
+    private func requestScreenTime() async {
+        isRequestingAuth = true
+        _ = await screenTime.requestAuthorization()
+        isRequestingAuth = false
+        switch screenTime.authState {
+        case .approved:       showStatus("Screen Time access enabled. Tap Choose Apps.")
+        case .denied:         showStatus("Access denied. You can still use Preview Mode.")
+        case .error(let msg): showStatus("Couldn't enable: \(msg)")
+        case .notDetermined:  break
+        }
+    }
+
+    private func toggleMock(_ id: String) {
+        if selectedMockIDs.contains(id) {
+            selectedMockIDs.remove(id)
         } else {
-            selectedIDs.insert(id)
+            selectedMockIDs.insert(id)
         }
     }
 
     private func applyGroup(_ group: LockInAppGroup) {
         if currentGroupMatch?.id == group.id {
-            // Tapping the active group clears all.
-            selectedIDs.removeAll()
+            selectedMockIDs.removeAll()
         } else {
-            selectedIDs = Set(group.appIDs)
+            selectedMockIDs = Set(group.appIDs)
         }
     }
 
-    private func saveSelection() {
-        let orderedIDs = apps.map(\.id).filter { selectedIDs.contains($0) }
-        savedAppIDsRaw = SelectedAppsStorage.encode(orderedIDs)
+    private func saveMockSelection() {
+        let orderedIDs = apps.map(\.id).filter { selectedMockIDs.contains($0) }
+        savedAppIDsRaw  = SelectedAppsStorage.encode(orderedIDs)
         savedAppGroupID = currentGroupMatch?.id ?? ""
         let count = orderedIDs.count
         let groupName = currentGroupMatch?.name
         let message: String
         switch count {
-        case 0: message = "Apps saved. No apps selected."
-        case 1: message = groupName.map { "Apps saved. \($0) (1 app)." } ?? "Apps saved. 1 app locked in."
-        default: message = groupName.map { "Apps saved. \($0) (\(count) apps)." } ?? "Apps saved. \(count) apps locked in."
+        case 0:  message = "Preview apps cleared."
+        case 1:  message = groupName.map { "Saved. \($0) (1 app)." } ?? "Saved. 1 preview app."
+        default: message = groupName.map { "Saved. \($0) (\(count) apps)." } ?? "Saved. \(count) preview apps."
         }
         showStatus(message)
     }
@@ -199,18 +411,18 @@ private struct GroupPresetRow: View {
             ZStack {
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
                     .fill(LockInColor.accent.opacity(isActive ? 0.22 : 0.12))
-                    .frame(width: 38, height: 38)
+                    .frame(width: 36, height: 36)
                 Image(systemName: group.systemImage)
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(isActive ? LockInColor.accent : LockInColor.textSecondary)
             }
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(group.name)
-                    .font(.system(size: 15, weight: .bold, design: .rounded))
+                    .font(.system(size: 14.5, weight: .bold, design: .rounded))
                     .foregroundStyle(LockInColor.textPrimary)
                 Text(group.appIDs.compactMap { MockApp.app(withID: $0)?.name }.joined(separator: ", "))
-                    .font(.system(size: 12.5, weight: .medium, design: .rounded))
+                    .font(.system(size: 12, weight: .medium, design: .rounded))
                     .foregroundStyle(LockInColor.textSecondary)
                     .lineLimit(1)
             }
@@ -239,7 +451,7 @@ private struct GroupPresetRow: View {
     }
 }
 
-// MARK: - App row
+// MARK: - Mock app row
 
 private struct MockAppRow: View {
     let app: MockApp
@@ -250,23 +462,23 @@ private struct MockAppRow: View {
             ZStack {
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
                     .fill(app.accent.opacity(isSelected ? 0.30 : 0.16))
-                    .frame(width: 38, height: 38)
+                    .frame(width: 36, height: 36)
                 Image(systemName: app.symbolName)
-                    .font(.system(size: 16, weight: .bold))
+                    .font(.system(size: 15, weight: .bold))
                     .foregroundStyle(.white)
             }
 
             Text(app.name)
-                .font(.system(size: 15.5, weight: .semibold, design: .rounded))
+                .font(.system(size: 15, weight: .semibold, design: .rounded))
                 .foregroundStyle(LockInColor.textPrimary)
 
             Spacer(minLength: 0)
 
             Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                .font(.system(size: 19, weight: isSelected ? .bold : .regular))
+                .font(.system(size: 18, weight: isSelected ? .bold : .regular))
                 .foregroundStyle(isSelected ? LockInColor.accent : LockInColor.textTertiary)
         }
-        .padding(.vertical, 11)
+        .padding(.vertical, 10)
         .padding(.horizontal, 12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(

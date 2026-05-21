@@ -17,12 +17,13 @@ struct StartLockInView: View {
     @AppStorage(LockInSetupKeys.dailyLimitMinutes)    private var dailyLimitMinutes: Int    = LockInDefaults.dailyLimitMinutes
     @AppStorage(LockInSetupKeys.sessionLengthMinutes) private var sessionLengthMinutes: Int = LockInDefaults.sessionLengthMinutes
     @AppStorage(LockInSetupKeys.slipThresholdSeconds) private var slipThresholdSeconds: Int = LockInDefaults.slipThresholdSeconds
-    @AppStorage(LockInSetupKeys.appGroupID)           private var appGroupID: String        = ""
     @AppStorage(LockInSetupKeys.randomizeSayings)     private var shuffleSayings: Bool      = LockInDefaults.randomizeSayings
     @AppStorage(SelectedAppsKeys.ids)                 private var savedAppIDsRaw: String    = ""
     @AppStorage(SelectedVoiceKeys.characterId)        private var savedCharacterID: String  = ""
     @AppStorage(SelectedVoiceKeys.clipIds)            private var savedClipIDsRaw: String   = ""
     @AppStorage(SessionKeys.scheduledFireDate)        private var scheduledFireEpoch: Double = 0
+
+    @StateObject private var familyStore = FamilySelectionStore.shared
 
     @State private var statusMessage: String?
     @State private var hasRequestedPermission = false
@@ -50,14 +51,12 @@ struct StartLockInView: View {
     }
 
     private var appsValueLabel: String {
-        if let group = LockInAppGroup.group(withID: appGroupID),
-           Set(group.appIDs) == Set(SelectedAppsStorage.decode(savedAppIDsRaw)) {
-            return "\(group.name) · \(selectedAppCount)"
+        if familyStore.hasAnySelection {
+            return "Apps selected"
         }
         switch selectedAppCount {
         case 0: return "No apps selected"
-        case 1: return "1 app"
-        default: return "\(selectedAppCount) apps"
+        default: return "Preview apps \u{00B7} \(selectedAppCount)"
         }
     }
 

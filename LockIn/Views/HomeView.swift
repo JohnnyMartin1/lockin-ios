@@ -10,11 +10,12 @@ struct HomeView: View {
     @AppStorage(LockInSetupKeys.dailyLimitMinutes)     private var dailyLimitMinutes: Int    = LockInDefaults.dailyLimitMinutes
     @AppStorage(LockInSetupKeys.sessionLengthMinutes)  private var sessionLengthMinutes: Int = LockInDefaults.sessionLengthMinutes
     @AppStorage(LockInSetupKeys.slipThresholdSeconds)  private var slipThresholdSeconds: Int = LockInDefaults.slipThresholdSeconds
-    @AppStorage(LockInSetupKeys.appGroupID)            private var appGroupID: String        = ""
     @AppStorage(LockInSetupKeys.randomizeSayings)      private var shuffleSayings: Bool      = LockInDefaults.randomizeSayings
     @AppStorage(SelectedAppsKeys.ids)                  private var savedAppIDsRaw: String    = ""
     @AppStorage(SelectedVoiceKeys.characterId)         private var savedCharacterID: String  = ""
     @AppStorage(SelectedVoiceKeys.clipIds)             private var savedClipIDsRaw: String   = ""
+
+    @StateObject private var familyStore = FamilySelectionStore.shared
 
     // MARK: - Derived
 
@@ -32,25 +33,13 @@ struct HomeView: View {
         VoiceLibrary.character(withID: savedCharacterID)
     }
 
-    private var resolvedCharacter: VoiceCharacter {
-        selectedCharacter ?? VoiceLibrary.defaultCharacter
-    }
-
-    private var matchedGroup: LockInAppGroup? {
-        guard !appGroupID.isEmpty,
-              let group = LockInAppGroup.group(withID: appGroupID),
-              Set(group.appIDs) == Set(selectedAppIDs) else { return nil }
-        return group
-    }
-
     private var appsValueLabel: String {
-        if let group = matchedGroup {
-            return "\(group.name) · \(selectedAppIDs.count)"
+        if familyStore.hasAnySelection {
+            return "Apps selected"
         }
         switch selectedAppIDs.count {
-        case 0: return "Not set"
-        case 1: return "1 app selected"
-        default: return "\(selectedAppIDs.count) apps selected"
+        case 0: return "No apps selected"
+        default: return "Preview apps \u{00B7} \(selectedAppIDs.count)"
         }
     }
 
@@ -80,7 +69,9 @@ struct HomeView: View {
     }
 
     private var isSetupComplete: Bool {
-        mode != nil && !selectedAppIDs.isEmpty && !selectedClipIDs.isEmpty
+        mode != nil
+            && (familyStore.hasAnySelection || !selectedAppIDs.isEmpty)
+            && !selectedClipIDs.isEmpty
     }
 
     var body: some View {

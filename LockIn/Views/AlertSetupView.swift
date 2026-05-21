@@ -296,6 +296,7 @@ struct AlertSetupView: View {
         savedCharacterID = selectedCharacterID
         savedClipIDsRaw  = SelectedClipsStorage.encode(orderedSelectedClipIDs)
         savedShuffle     = draftShuffle
+        SetupSyncCoordinator.syncCurrentSetupToSharedStore()
         let n = selectedClipIDs.count
         let suffix = (n > 1 && draftShuffle) ? " (shuffle on)" : ""
         showStatus("Saved. \(selectedCharacter.name) · \(n) saying\(n == 1 ? "" : "s")\(suffix).")

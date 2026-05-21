@@ -97,6 +97,7 @@ struct ModeSetupView: View {
         if savedModeRaw != mode.rawValue {
             savedModeRaw = mode.rawValue
         }
+        SetupSyncCoordinator.syncCurrentSetupToSharedStore()
         chainToLimits = true
     }
 }

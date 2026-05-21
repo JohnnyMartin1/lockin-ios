@@ -17,6 +17,11 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         // UNUserNotificationCenter.current().delegate at launch.
         _ = NotificationManager.shared
         print("[LockIn] AppDelegate didFinishLaunching — notification delegate ready.")
+
+        // Make sure the App Group config is fresh on launch so the
+        // Device Activity Monitor extension always sees the latest setup.
+        SetupSyncCoordinator.syncCurrentSetupToSharedStore()
+
         return true
     }
 }

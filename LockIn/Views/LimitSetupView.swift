@@ -216,10 +216,12 @@ struct LimitSetupView: View {
         switch mode {
         case .some(.dailyLimit):
             dailyLimitMinutes = draftDailyLimit
+            SetupSyncCoordinator.syncCurrentSetupToSharedStore()
             showStatus("Saved. \(LimitFormatter.minutes(draftDailyLimit)) per day.")
         case .some(.lockInSession):
             sessionLengthMinutes = draftSessionLength
             slipThresholdSeconds = draftSlipThreshold
+            SetupSyncCoordinator.syncCurrentSetupToSharedStore()
             showStatus("Saved. \(LimitFormatter.minutes(draftSessionLength)) session, \(LimitFormatter.seconds(draftSlipThreshold)) slip.")
         case .none:
             return

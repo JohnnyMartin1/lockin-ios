@@ -84,6 +84,26 @@ final class FamilySelectionStore: ObservableObject {
         selection = FamilyActivitySelection()
     }
 
+    /// Re-reads the persisted selection from the App Group before starting
+    /// DeviceActivity monitoring so tokens match what was saved in the picker.
+    func reloadFromAppGroup() {
+        guard let sharedDefaults,
+              let data = sharedDefaults.data(forKey: Self.storageKey) else {
+            print("[LockIn] FamilySelectionStore reload: no data in App Group (\(Self.storageKey)).")
+            return
+        }
+        do {
+            let decoded = try PropertyListDecoder().decode(FamilyActivitySelection.self, from: data)
+            selection = decoded
+            print("[LockIn] FamilySelectionStore reload OK "
+                  + "apps=\(decoded.applicationTokens.count) "
+                  + "categories=\(decoded.categoryTokens.count) "
+                  + "webs=\(decoded.webDomainTokens.count)")
+        } catch {
+            print("[LockIn] FamilySelectionStore reload decode failed: \(error)")
+        }
+    }
+
     // MARK: - Persistence
 
     // TODO: Phase B — finalize cross-process persistence here when the Device

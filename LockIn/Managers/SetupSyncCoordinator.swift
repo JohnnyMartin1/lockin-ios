@@ -45,7 +45,9 @@ enum SetupSyncCoordinator {
             )
         }
 
-        // Preserve lastAlertFiredAt (only the extension updates it).
+        // Preserve fields owned by the running monitoring path
+        // (lastAlertFiredAt + LockIn session window). The setup-screen sync
+        // never touches them — only DeviceActivityManager and the extension do.
         let existing = SharedConfigurationStore.shared.load()
 
         let configuration = SharedLockInConfiguration(
@@ -58,7 +60,9 @@ enum SetupSyncCoordinator {
             slipThresholdSeconds: slipThresholdSeconds,
             cooldownMinutes: cooldownMinutes,
             lastAlertFiredAt: existing.lastAlertFiredAt,
-            resolvedClips: resolvedClips
+            resolvedClips: resolvedClips,
+            lockInSessionStartedAt: existing.lockInSessionStartedAt,
+            lockInSessionEndsAt: existing.lockInSessionEndsAt
         )
 
         let ok = SharedConfigurationStore.shared.save(configuration)

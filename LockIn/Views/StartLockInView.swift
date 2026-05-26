@@ -32,6 +32,8 @@ struct StartLockInView: View {
     @State private var hasRequestedPermission = false
     @State private var hasPendingLockIn = false
     @State private var showDebugSection = false
+    @State private var debugLogLines: [String] = []
+    @State private var debugLogRefreshTrigger = 0
 
     // MARK: - Derived
 
@@ -102,7 +104,16 @@ struct StartLockInView: View {
             }
             return "LockIn will alert you when your selected apps reach \(LimitFormatter.minutes(dailyLimitMinutes)) today."
         case .some(.lockInSession):
-            return "For now, this previews the alert. App monitoring for LockIn Mode connects later."
+            if dailyMonitor.isMonitoringLockInSession {
+                return "LockIn Mode is active. LockIn alerts if you use selected apps for more than \(LimitFormatter.seconds(slipThresholdSeconds))."
+            }
+            if !screenTime.authState.isApproved {
+                return "Enable Screen Time access on the Apps screen to start LockIn Mode."
+            }
+            if !familyStore.hasAnySelection {
+                return "Choose real apps with Screen Time access to start LockIn Mode."
+            }
+            return "During this session, LockIn watches selected apps and alerts if you slip past \(LimitFormatter.seconds(slipThresholdSeconds))."
         case .none:
             return "Set up a mode to get started."
         }
@@ -115,6 +126,28 @@ struct StartLockInView: View {
             && familyStore.hasAnySelection
             && !savedCharacterID.isEmpty
             && !SelectedClipsStorage.decode(savedClipIDsRaw).isEmpty
+    }
+
+    /// True when the LockIn Mode primary action ("Start LockIn") can be tapped.
+    private var canStartLockInSession: Bool {
+        mode == .some(.lockInSession)
+            && screenTime.authState.isApproved
+            && familyStore.hasAnySelection
+            && !savedCharacterID.isEmpty
+            && !SelectedClipsStorage.decode(savedClipIDsRaw).isEmpty
+    }
+
+    private var lockInSessionBlockReason: String {
+        if !screenTime.authState.isApproved {
+            return "Enable Screen Time access on the Apps screen first."
+        }
+        if !familyStore.hasAnySelection {
+            return "Choose real apps with Screen Time access on the Apps screen first."
+        }
+        if savedCharacterID.isEmpty || SelectedClipsStorage.decode(savedClipIDsRaw).isEmpty {
+            return "Pick a character and at least one saying on the Voice screen first."
+        }
+        return ""
     }
 
     var body: some View {
@@ -132,6 +165,9 @@ struct StartLockInView: View {
                     monitoringNoteCard
                     if mode == .some(.dailyLimit) {
                         dailyLimitSection
+                    }
+                    if mode == .some(.lockInSession) {
+                        lockInSessionSection
                     }
                     if hasPendingLockIn {
                         activeSessionCard
@@ -162,7 +198,21 @@ struct StartLockInView: View {
         .onAppear {
             // Reflect OS-truth on every visit (monitoring persists across launches).
             dailyMonitor.refreshStatus()
+            dailyMonitor.debugCurrentActivities()
             screenTime.refreshAuthorizationStatus()
+            refreshDebugLog()
+        }
+        .onChange(of: showDebugSection) { _, opened in
+            if opened { refreshDebugLog() }
+        }
+        .onChange(of: dailyMonitor.isMonitoringLockInSession) { _, _ in
+            refreshDebugLog()
+        }
+        .onChange(of: dailyMonitor.isMonitoringDailyLimit) { _, _ in
+            refreshDebugLog()
+        }
+        .onChange(of: dailyMonitor.isMonitoringDebugWake) { _, _ in
+            refreshDebugLog()
         }
     }
 
@@ -181,19 +231,23 @@ struct StartLockInView: View {
     }
 
     private var topBarPillText: String {
-        if dailyMonitor.isMonitoringDailyLimit { return "Monitoring" }
-        if hasPendingLockIn                    { return "Preview" }
+        if dailyMonitor.isMonitoringLockInSession { return "LockIn active" }
+        if dailyMonitor.isMonitoringDailyLimit    { return "Monitoring" }
+        if hasPendingLockIn                       { return "Preview" }
         return mode?.displayName ?? "No mode"
     }
 
     private var topBarPillIcon: String {
-        if dailyMonitor.isMonitoringDailyLimit { return "dot.radiowaves.left.and.right" }
-        if hasPendingLockIn                    { return "hourglass" }
+        if dailyMonitor.isMonitoringLockInSession { return "scope" }
+        if dailyMonitor.isMonitoringDailyLimit    { return "dot.radiowaves.left.and.right" }
+        if hasPendingLockIn                       { return "hourglass" }
         return mode?.systemImage ?? "switch.2"
     }
 
     private var topBarPillIsActive: Bool {
-        dailyMonitor.isMonitoringDailyLimit || hasPendingLockIn
+        dailyMonitor.isMonitoringDailyLimit
+            || dailyMonitor.isMonitoringLockInSession
+            || hasPendingLockIn
     }
 
     private var header: some View {
@@ -422,6 +476,125 @@ struct StartLockInView: View {
         return ""
     }
 
+    // MARK: - LockIn Mode session (real monitoring)
+
+    private var lockInSessionSection: some View {
+        LockInCard(emphasis: dailyMonitor.isMonitoringLockInSession ? .accent : .standard) {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(spacing: 10) {
+                    Image(systemName: dailyMonitor.isMonitoringLockInSession ? "scope" : "scope")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundStyle(dailyMonitor.isMonitoringLockInSession
+                                         ? LockInColor.accent
+                                         : LockInColor.textSecondary)
+                    Text(dailyMonitor.isMonitoringLockInSession ? "LockIn Mode is active" : "LockIn Session")
+                        .font(.system(size: 13, weight: .heavy, design: .rounded))
+                        .tracking(1.0)
+                        .foregroundStyle(LockInColor.textPrimary)
+                    Spacer(minLength: 0)
+                    Text(LimitFormatter.minutes(sessionLengthMinutes))
+                        .font(.system(size: 12, weight: .bold, design: .rounded))
+                        .foregroundStyle(LockInColor.textTertiary)
+                }
+
+                Text(slipDescription)
+                    .font(.system(size: 12.5, weight: .medium, design: .rounded))
+                    .foregroundStyle(LockInColor.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                if !dailyMonitor.lastLockInStartDebugLines.isEmpty {
+                    lockInMonitoringDebugBlock
+                }
+
+                if dailyMonitor.isMonitoringLockInSession {
+                    activeSessionCountdown
+                    PrimaryButton(
+                        title: "End LockIn",
+                        systemImage: "stop.circle.fill",
+                        style: .secondary
+                    ) {
+                        handleEndLockInSession()
+                    }
+                } else {
+                    PrimaryButton(
+                        title: "Start LockIn",
+                        systemImage: "bolt.fill",
+                        style: .primary,
+                        isEnabled: canStartLockInSession
+                    ) {
+                        handleStartLockInSession()
+                    }
+
+                    if !canStartLockInSession {
+                        Text(lockInSessionBlockReason)
+                            .font(.system(size: 12, weight: .medium, design: .rounded))
+                            .foregroundStyle(LockInColor.textTertiary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+        }
+    }
+
+    private var slipDescription: String {
+        "Watching selected apps for \(LimitFormatter.minutes(sessionLengthMinutes)). Alert fires after \(LimitFormatter.seconds(slipThresholdSeconds)) of slip time."
+    }
+
+    private var lockInMonitoringDebugBlock: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            ForEach(Array(dailyMonitor.lastLockInStartDebugLines.enumerated()), id: \.offset) { _, line in
+                Text(line)
+                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                    .foregroundStyle(LockInColor.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(LockInColor.surface.opacity(0.6))
+        )
+    }
+
+    private var activeSessionCountdown: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            TimelineView(.periodic(from: .now, by: 1.0)) { context in
+                let remaining = lockInRemainingSeconds(now: context.date)
+                HStack(spacing: 6) {
+                    Image(systemName: "timer")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(LockInColor.accent)
+                    Text("Ends in \(formatRemaining(remaining))")
+                        .font(.system(size: 13, weight: .heavy, design: .rounded))
+                        .foregroundStyle(LockInColor.textPrimary)
+                        .contentTransition(.numericText())
+                    if let endsAt = dailyMonitor.lockInSessionEndsAt {
+                        Spacer(minLength: 0)
+                        Text("at \(endsAt.formatted(date: .omitted, time: .shortened))")
+                            .font(.system(size: 12, weight: .medium, design: .rounded))
+                            .foregroundStyle(LockInColor.textTertiary)
+                    }
+                }
+            }
+        }
+    }
+
+    private func lockInRemainingSeconds(now: Date) -> Int {
+        guard let endsAt = dailyMonitor.lockInSessionEndsAt else { return 0 }
+        return max(0, Int(endsAt.timeIntervalSince(now).rounded()))
+    }
+
+    private func formatRemaining(_ totalSeconds: Int) -> String {
+        let h = totalSeconds / 3600
+        let m = (totalSeconds % 3600) / 60
+        let s = totalSeconds % 60
+        if h > 0 {
+            return String(format: "%dh %02dm %02ds", h, m, s)
+        }
+        return String(format: "%02dm %02ds", m, s)
+    }
+
     // MARK: - Preview (local notification test)
 
     private var previewButton: some View {
@@ -466,8 +639,173 @@ struct StartLockInView: View {
                 ) {
                     Task { await handleSendDebug() }
                 }
+
+                diagnosticsBlock
             }
         }
+    }
+
+    // MARK: - Diagnostics (DeviceActivity)
+
+    private var diagnosticsBlock: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("DEVICE ACTIVITY DIAGNOSTICS")
+                .font(.system(size: 10, weight: .heavy, design: .rounded))
+                .tracking(1.6)
+                .foregroundStyle(LockInColor.textTertiary)
+
+            registeredActivitiesRow
+
+            HStack(spacing: 8) {
+                PrimaryButton(
+                    title: "Refresh Activities",
+                    systemImage: "arrow.clockwise",
+                    style: .secondary
+                ) {
+                    handleRefreshActivities()
+                }
+                if dailyMonitor.isMonitoringDebugWake {
+                    PrimaryButton(
+                        title: "Stop Wakeup",
+                        systemImage: "stop.fill",
+                        style: .secondary
+                    ) {
+                        handleStopDebugWake()
+                    }
+                } else {
+                    PrimaryButton(
+                        title: "Test Extension Wakeup",
+                        systemImage: "bolt.horizontal.fill",
+                        style: .secondary
+                    ) {
+                        handleStartDebugWake()
+                    }
+                }
+            }
+
+            debugLogPanel
+
+            if let interpretation = diagnosticInterpretation {
+                Text(interpretation)
+                    .font(.system(size: 11, weight: .medium, design: .rounded))
+                    .foregroundStyle(LockInColor.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: LockInRadius.m, style: .continuous)
+                .fill(LockInColor.surface.opacity(0.6))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: LockInRadius.m, style: .continuous)
+                .strokeBorder(LockInColor.border, lineWidth: 1)
+        )
+    }
+
+    /// Small heuristic helper rendered under the diagnostics log so the
+    /// situation is obvious without reading every line.
+    private var diagnosticInterpretation: String? {
+        let registered = !dailyMonitor.registeredActivityNames.isEmpty
+        let extensionEverWoke = debugLogLines.contains { $0.contains("[extension]") }
+
+        if registered && !extensionEverWoke {
+            return "Monitoring is registered, but the extension has not woken yet. Press \u{201C}Test Extension Wakeup\u{201D} — [extension] logs should appear within a few minutes. If they don't, the extension binary isn't being loaded by iOS."
+        }
+        if registered && extensionEverWoke {
+            return "Extension has woken at least once. If a real slip alert still doesn't fire, check threshold (try 1 minute) and that you actually used the selected app."
+        }
+        if !registered {
+            return "No DeviceActivity is registered. Start LockIn Mode or press Test Extension Wakeup to register one."
+        }
+        return nil
+    }
+
+    private var registeredActivitiesRow: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Registered activities: \(dailyMonitor.registeredActivityNames.count)")
+                .font(.system(size: 11.5, weight: .heavy, design: .monospaced))
+                .foregroundStyle(LockInColor.textSecondary)
+            if dailyMonitor.registeredActivityNames.isEmpty {
+                Text("(none)")
+                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                    .foregroundStyle(LockInColor.textTertiary)
+            } else {
+                ForEach(Array(dailyMonitor.registeredActivityNames.enumerated()), id: \.offset) { _, name in
+                    Text("• \(name)")
+                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                        .foregroundStyle(LockInColor.textTertiary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+            }
+        }
+    }
+
+    private var debugLogPanel: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("Shared debug log (last \(debugLogLines.count))")
+                    .font(.system(size: 11, weight: .heavy, design: .rounded))
+                    .tracking(0.8)
+                    .foregroundStyle(LockInColor.textTertiary)
+                Spacer()
+                Button("Refresh") {
+                    refreshDebugLog()
+                }
+                .font(.system(size: 11, weight: .bold, design: .rounded))
+                .foregroundStyle(LockInColor.accent)
+                Button("Clear") {
+                    dailyMonitor.clearDebugLog()
+                    refreshDebugLog()
+                }
+                .font(.system(size: 11, weight: .bold, design: .rounded))
+                .foregroundStyle(LockInColor.warning)
+            }
+
+            if debugLogLines.isEmpty {
+                Text("(empty)")
+                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                    .foregroundStyle(LockInColor.textTertiary)
+            } else {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 2) {
+                        ForEach(Array(debugLogLines.enumerated()), id: \.offset) { _, line in
+                            Text(line)
+                                .font(.system(size: 10.5, weight: .medium, design: .monospaced))
+                                .foregroundStyle(LockInColor.textSecondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                }
+                .frame(maxHeight: 220)
+            }
+        }
+        .id(debugLogRefreshTrigger)
+    }
+
+    private func handleRefreshActivities() {
+        dailyMonitor.debugCurrentActivities()
+        refreshDebugLog()
+    }
+
+    private func handleStartDebugWake() {
+        _ = dailyMonitor.startDebugWakeMonitoring()
+        refreshDebugLog()
+        showStatus("Test wakeup registered. Expect intervalDidStart within ~30s.")
+    }
+
+    private func handleStopDebugWake() {
+        dailyMonitor.stopDebugWakeMonitoring()
+        refreshDebugLog()
+        showStatus("Test wakeup stopped.")
+    }
+
+    private func refreshDebugLog() {
+        debugLogLines = ScreenTimeDebugLogStore.tail(25)
+        debugLogRefreshTrigger &+= 1
     }
 
     // MARK: - Daily Limit actions
@@ -493,6 +831,35 @@ struct StartLockInView: View {
     private func handleStopDailyLimit() {
         dailyMonitor.stopDailyLimitMonitoring()
         showStatus("Daily limit monitoring stopped.")
+    }
+
+    // MARK: - LockIn Mode actions
+
+    private func handleStartLockInSession() {
+        guard canStartLockInSession else {
+            showStatus(lockInSessionBlockReason)
+            return
+        }
+        let result = dailyMonitor.startLockInSessionMonitoring(
+            selection: familyStore.selection,
+            sessionLengthMinutes: sessionLengthMinutes,
+            slipThresholdSeconds: slipThresholdSeconds,
+            isAuthorized: screenTime.authState.isApproved
+        )
+        switch result {
+        case .success:
+            let endsAt = dailyMonitor.lockInSessionEndsAt
+                .map { "Ends at \($0.formatted(date: .omitted, time: .shortened))." }
+                ?? ""
+            showStatus("LockIn Mode is active. \(endsAt) Alert fires after \(LimitFormatter.seconds(slipThresholdSeconds)) of slip time.")
+        case .failure(let error):
+            showStatus(error.errorDescription ?? "Could not start LockIn Mode.")
+        }
+    }
+
+    private func handleEndLockInSession() {
+        dailyMonitor.stopLockInSessionMonitoring()
+        showStatus("LockIn Mode ended.")
     }
 
     // MARK: - Preview actions

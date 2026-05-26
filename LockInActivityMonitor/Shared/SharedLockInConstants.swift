@@ -20,6 +20,8 @@ enum SharedLockInConstants {
     enum ActivityName {
         static let dailyLimit    = "com.JohnMartin.LockInapp.activity.dailyLimit"
         static let lockInSession = "com.JohnMartin.LockInapp.activity.lockInSession"
+        /// Diagnostic activity registered by the main app to test extension wakeup.
+        static let debugWake     = "com.JohnMartin.LockInapp.activity.debugWake"
     }
 
     /// DeviceActivity event names within those activities.
@@ -41,5 +43,8 @@ enum SharedLockInConstants {
         static let configuration             = "lockin.shared.configuration.v1"
         /// `FamilyActivitySelection` blob written by `FamilySelectionStore`.
         static let familyActivitySelection   = "lockin.familyActivitySelection.v1"
+        /// Rolling array of human-readable debug lines written by both the
+        /// main app and the extension. See `ScreenTimeDebugLogStore`.
+        static let debugLog                  = "lockin.shared.debugLog.v1"
     }
 }

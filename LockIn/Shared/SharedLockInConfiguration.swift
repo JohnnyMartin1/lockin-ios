@@ -32,6 +32,12 @@ struct SharedLockInConfiguration: Codable, Equatable {
     /// so the extension never needs to import or duplicate voice data.
     var resolvedClips: [SharedVoiceClipPayload]
 
+    /// Phase D — active LockIn Mode session window. Both fields are non-nil
+    /// only while a LockIn session is being monitored by `DeviceActivityCenter`.
+    /// The extension clears them in `intervalDidEnd(for:)`.
+    var lockInSessionStartedAt: Date?
+    var lockInSessionEndsAt: Date?
+
     static let `default` = SharedLockInConfiguration(
         modeType: "",
         selectedCharacterId: "",
@@ -42,7 +48,9 @@ struct SharedLockInConfiguration: Codable, Equatable {
         slipThresholdSeconds: 60,
         cooldownMinutes: 5,
         lastAlertFiredAt: nil,
-        resolvedClips: []
+        resolvedClips: [],
+        lockInSessionStartedAt: nil,
+        lockInSessionEndsAt: nil
     )
 
     /// True if the snapshot has the minimum information the extension needs.

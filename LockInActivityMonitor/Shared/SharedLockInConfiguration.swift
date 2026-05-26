@@ -24,6 +24,11 @@ struct SharedLockInConfiguration: Codable, Equatable {
     /// duplicate `VoiceLibrary`.
     var resolvedClips: [SharedVoiceClipPayload]
 
+    /// Phase D — active LockIn Mode session window. The extension clears
+    /// these in `intervalDidEnd(for:)` when the session ends.
+    var lockInSessionStartedAt: Date?
+    var lockInSessionEndsAt: Date?
+
     static let `default` = SharedLockInConfiguration(
         modeType: "",
         selectedCharacterId: "",
@@ -34,7 +39,9 @@ struct SharedLockInConfiguration: Codable, Equatable {
         slipThresholdSeconds: 60,
         cooldownMinutes: 5,
         lastAlertFiredAt: nil,
-        resolvedClips: []
+        resolvedClips: [],
+        lockInSessionStartedAt: nil,
+        lockInSessionEndsAt: nil
     )
 
     var isValidForMonitoring: Bool {

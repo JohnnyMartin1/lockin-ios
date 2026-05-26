@@ -103,23 +103,44 @@ struct HomeView: View {
     // MARK: - Header
 
     private var headerSection: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 10) {
             LockInType.wordmark("LOCKIN")
-            HStack(spacing: 8) {
-                Text("Your screen-time wake-up call.")
-                    .font(.system(size: 13.5, weight: .medium, design: .rounded))
-                    .foregroundStyle(LockInColor.textSecondary)
-                Spacer(minLength: 0)
-                if dailyMonitor.isMonitoringDailyLimit {
-                    PillBadge(
-                        text: "Monitoring on",
-                        style: .accent,
-                        systemImage: "dot.radiowaves.left.and.right"
-                    )
-                }
+            Text("Your screen-time wake-up call.")
+                .font(.system(size: 13.5, weight: .medium, design: .rounded))
+                .foregroundStyle(LockInColor.textSecondary)
+            if dailyMonitor.isMonitoringLockInSession || dailyMonitor.isMonitoringDailyLimit {
+                monitoringStatusStrip
             }
         }
         .padding(.top, LockInSpacing.s)
+    }
+
+    private var monitoringStatusStrip: some View {
+        HStack(spacing: 8) {
+            if dailyMonitor.isMonitoringLockInSession {
+                PillBadge(
+                    text: lockInActivePillText,
+                    style: .accent,
+                    systemImage: "scope"
+                )
+            }
+            if dailyMonitor.isMonitoringDailyLimit {
+                PillBadge(
+                    text: "Daily limit on",
+                    style: .accent,
+                    systemImage: "dot.radiowaves.left.and.right"
+                )
+            }
+            Spacer(minLength: 0)
+        }
+    }
+
+    private var lockInActivePillText: String {
+        if let endsAt = dailyMonitor.lockInSessionEndsAt {
+            let timeStr = endsAt.formatted(date: .omitted, time: .shortened)
+            return "LockIn active \u{00B7} ends \(timeStr)"
+        }
+        return "LockIn active"
     }
 
     // MARK: - Current setup
